@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <title>Memory Handoff Hub</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; }
+    textarea { width: 95%; height: 250px; margin-bottom: 10px; }
+    button { padding: 10px 15px; background-color: #007BFF; color: white; border: none; cursor: pointer; }
+    #status { margin-top: 15px; font-weight: bold; }
+    .doc-link { margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h2>🧠 Memory Handoff Hub (v2.2)</h2>
+  
+  <p>Gemini/ChatGPT에서 생성한 [HANDOFF] 블록을 아래에 붙여넣고 [GDoc에 저장] 버튼을 누르세요.</p>
+  
+  <textarea id="handoffText" placeholder="[HANDOFF]... 블록을 여기에 붙여넣으세요..."></textarea>
+  <br>
+  <button onclick="saveHandoff()">GDoc에 저장</button>
+  <button onclick="openDoc()">문서 열기</button>
+  
+  <div id="status"></div>
+  <div class="doc-link"><a id="docLink" href="#" target="_blank"></a></div>
+
+  <script>
+    // 페이지 로드 시 GDoc 정보 가져오기 (C님의 getDocInfo() 호출)
+    document.addEventListener("DOMContentLoaded", function() {
+      google.script.run.withSuccessHandler(function(info) {
+        document.getElementById("docLink").href = info.url;
+        document.getElementById("docLink").innerText = "» " + info.name + " 열기";
+      }).getDocInfo();
+    });
+
+    // 핸드오프 저장 (C님의 doPost() 호출)
+    function saveHandoff() {
+      document.getElementById("status").innerText = "저장 중...";
+      var text = document.getElementById("handoffText").value;
+      
+      // v2.2 보안: Apps Script의 API 토큰을 여기서 가져와야 합니다.
+      // (이 예제는 편의상 UI에서 토큰을 입력받는 것을 생략했습니다)
+      // (실제 운영 시에는 UI 로그인/토큰 관리 기능이 필요합니다)
+      
+      // C님의 `doPost`는 `text/plain`을 받으므로 `google.script.run` 대신
+      // `fetch`를 사용해 URL로 POST 요청을 보내는 것이 더 표준적입니다.
+      // (단, 이 예제는 `google.script.run`을 사용한 간편 버전입니다.)
+
+      // C님의 `appendHandoff` 함수를 서버사이드에서 직접 호출합니다.
+      // (이 방식은 보안 토큰(SECRET) 검사를 우회하므로, UI 전용입니다.)
+      google.script.run
+        .withSuccessHandler(function(response) {
+          document.getElementById("status").innerText = "✅ 저장 성공! (Status: " + response.status + ")";
+          document.getElementById("handoffText").value = ""; // 입력창 비우기
+        })
+        .withFailureHandler(function(err) {
+          document.getElementById("status").innerText = "❌ 저장 실패: " + err.message;
+        })
+        .appendHandoff(text); // `doPost` 대신 `appendHandoff` 직접 호출
+    }
+
+    function openDoc() {
+      window.open(document.getElementById("docLink").href);
+    }
+  </script>
+</body>
+</html>

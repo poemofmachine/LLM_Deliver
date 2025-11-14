@@ -6,35 +6,44 @@ import urllib.request
 import urllib.parse
 from dotenv import load_dotenv
 
-# 1. .env 파일에서 환경 변수(비밀) 로드
+# 1. .env 파일 로드
 load_dotenv()
-DOC_ID = os.getenv("DOC_ID")
 WEBAPP_URL = os.getenv("WEBAPP_URL")
 API_TOKEN = os.getenv("API_TOKEN")
 
-if not all([DOC_ID, WEBAPP_URL, API_TOKEN]):
-    print("오류: .env 파일에 DOC_ID, WEBAPP_URL, API_TOKEN이 모두 설정되어야 합니다.")
+if not all([WEBAPP_URL, API_TOKEN]):
+    print("오류: .env 파일에 WEBAPP_URL, API_TOKEN이 모두 설정되어야 합니다.")
     exit(1)
 
-print("v2.0 API 서버에서 최신 [HANDOFF] 데이터를 가져오는 중...")
+print("v2.2 API 서버(JSON 모드)에서 최신 데이터를 가져오는 중...")
 
-# 2. API URL 생성 (파라미터 포함)
-params = {'docId': DOC_ID, 'token': API_TOKEN}
+# 2. [수정됨] v2.2 API(code.gs)가 요구하는 정확한 URL 파라미터로 수정
+# 'docId'와 'token' 대신 -> 'mode=json'과 'key' 사용
+params = {'mode': 'json', 'key': API_TOKEN}
 url = f"{WEBAPP_URL}?{urllib.parse.urlencode(params)}"
 
 try:
     with urllib.request.urlopen(url) as r:
-        data = json.loads(r.read().decode("utf-8"))
+        response_text = r.read().decode("utf-8")
+        # 디버깅: 서버가 무엇을 보냈는지 확인
+        if not response_text.startswith('{'):
+             print(f"서버가 JSON이 아닌 응답을 보냈습니다 (HTML 오류 페이지일 수 있음): {response_text[:200]}...")
+             raise json.JSONDecodeError("Response was not JSON", response_text, 0)
+            
+        data = json.loads(response_text)
         if data.get("error"):
             print(f"API 오류: {data['error']}")
             exit(1)
 
+except json.JSONDecodeError as e:
+    print(f"API 호출 실패: JSON 디코딩 오류.")
+    print(f"오류 상세: {e}")
+    exit(1)
 except Exception as e:
     print(f"API 호출 실패: {e}")
     exit(1)
 
 # 3. [핵심] 동적 마크다운 생성
-# API가 어떤 [섹션]을 주든, 이 코드는 수정할 필요가 없습니다.
 ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
 out_path = pathlib.Path(f"examples/handoff_{ts}.md")
 out_path.parent.mkdir(parents=True, exist_ok=True)
