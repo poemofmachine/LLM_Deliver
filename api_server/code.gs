@@ -9,12 +9,38 @@
 
 // [사용자 설정] 이 GDoc ID는 본인의 GDoc ID로 수정하세요.
 var DOC_ID = '13hkVp2_6s2AcVgtcRUtMyqXCGGCJfjOkJWvq-XCgyu4';
+var PROP_LAST_REVISION = 'LAST_REVISION';
+var LOCK_WAIT_MS = 10000;
 
 /**
  * [보안] 스크립트 속성에서 API 토큰(비밀번호)을 안전하게 가져옵니다.
  */
 function getSecret() {
   return PropertiesService.getScriptProperties().getProperty('API_TOKEN');
+}
+
+function getScriptProperties() {
+  return PropertiesService.getScriptProperties();
+}
+
+function ensureRevision() {
+  var props = getScriptProperties();
+  var current = props.getProperty(PROP_LAST_REVISION);
+  if (!current) {
+    current = Utilities.getUuid();
+    props.setProperty(PROP_LAST_REVISION, current);
+  }
+  return current;
+}
+
+function bumpRevision() {
+  var nextRevision = Utilities.getUuid();
+  getScriptProperties().setProperty(PROP_LAST_REVISION, nextRevision);
+  return nextRevision;
+}
+
+function formatISO(dateObj) {
+  return Utilities.formatDate(dateObj || new Date(), 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
 }
 
 /**
@@ -60,8 +86,9 @@ function doPost(e) {
   if (e && e.postData && e.postData.contents) text = String(e.postData.contents);
   if (!text && e && e.parameter && e.parameter.text) text = String(e.parameter.text);
 
-  var res = appendHandoff(text); // C님의 뛰어난 '쓰기' 함수 호출
-  return createJSON(res); // 결과를 JSON으로 반환
+  var providedRevision = (e && e.parameter && e.parameter.revision) || '';
+  var result = syncHandoff(text, providedRevision);
+  return createJSON(result);
 }
 
 // ==========================================================
@@ -74,12 +101,16 @@ function doPost(e) {
  */
 function getLatestAsJSON() {
   const latestHandoffText = getLatestAsText(); // 1. 최신 텍스트 가져오기
+  const docMeta = getDocumentMeta();
   
   // 2. v2.0 동적 파싱 로직
   const regex = /\[([a-zA-Z0-9_ ]+)\]([\s\S]*?)(?=\n\[[a-zA-Z0-9_ ]+\]|$)/g;
   let sectionMatch;
   const result = {
-    parsed_at: new Date().toISOString()
+    parsed_at: new Date().toISOString(),
+    revision_id: docMeta.revisionId,
+    last_updated: docMeta.lastUpdated,
+    doc_url: docMeta.url
   };
 
   // [HANDOFF] 블록인지 확인
@@ -144,11 +175,13 @@ function getLatestAsText() {
  * (C님 로직) UI에서 '문서 열기'용 정보를 가져옵니다.
  */
 function getDocInfo() {
-  var doc = DocumentApp.openById(DOC_ID);
+  var meta = getDocumentMeta();
   return {
-    id: DOC_ID,
-    url: 'https://docs.google.com/document/d/' + DOC_ID + '/edit',
-    name: doc.getName()
+    id: meta.id,
+    url: meta.url,
+    name: meta.name,
+    lastUpdated: meta.lastUpdated,
+    revisionId: meta.revisionId
   };
 }
 
@@ -158,4 +191,67 @@ function getDocInfo() {
 function createJSON(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * (확장) GDoc 메타데이터와 현재 리비전 상태를 함께 제공합니다.
+ */
+function getDocumentMeta() {
+  var doc = DocumentApp.openById(DOC_ID);
+  var updatedAt = doc.getLastUpdated();
+  return {
+    id: DOC_ID,
+    name: doc.getName(),
+    url: 'https://docs.google.com/document/d/' + DOC_ID + '/edit',
+    lastUpdated: formatISO(updatedAt),
+    revisionId: ensureRevision()
+  };
+}
+
+/**
+ * (확장) 리비전 체크/락을 포함한 쓰기 엔트리 포인트
+ */
+function syncHandoff(text, revisionId) {
+  var currentRevision = ensureRevision();
+  if (!revisionId) {
+    return {
+      status: 'MISSING_REVISION',
+      revisionId: currentRevision
+    };
+  }
+
+  if (revisionId !== currentRevision) {
+    return {
+      status: 'CONFLICT',
+      revisionId: currentRevision,
+      providedRevision: revisionId
+    };
+  }
+
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(LOCK_WAIT_MS);
+  } catch (err) {
+    return {
+      status: 'LOCK_TIMEOUT',
+      message: '현재 다른 사용자가 저장 중입니다. 잠시 후 다시 시도하세요.',
+      revisionId: currentRevision
+    };
+  }
+
+  var appendResult;
+  try {
+    appendResult = appendHandoff(text);
+    if (appendResult.status === 'OK') {
+      bumpRevision();
+    }
+  } finally {
+    lock.releaseLock();
+  }
+
+  var meta = getDocumentMeta();
+  return Object.assign({}, appendResult, {
+    revisionId: meta.revisionId,
+    last_updated: meta.lastUpdated
+  });
 }

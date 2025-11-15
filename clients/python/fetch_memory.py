@@ -4,62 +4,115 @@ import datetime
 import pathlib
 import urllib.request
 import urllib.parse
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - fallback when python-dotenv is absent
+    def load_dotenv():
+        return False
 
 # 1. .env 파일 로드
 load_dotenv()
 WEBAPP_URL = os.getenv("WEBAPP_URL")
 API_TOKEN = os.getenv("API_TOKEN")
+REVISION_CACHE_PATH = pathlib.Path("clients/python/.revision_cache")
 
-if not all([WEBAPP_URL, API_TOKEN]):
-    print("오류: .env 파일에 WEBAPP_URL, API_TOKEN이 모두 설정되어야 합니다.")
-    exit(1)
+SKIP_KEYS = {"parsed_at", "revision_id", "last_updated", "doc_url"}
 
-print("v2.2 API 서버(JSON 모드)에서 최신 데이터를 가져오는 중...")
 
-# 2. [수정됨] v2.2 API(code.gs)가 요구하는 정확한 URL 파라미터로 수정
-# 'docId'와 'token' 대신 -> 'mode=json'과 'key' 사용
-params = {'mode': 'json', 'key': API_TOKEN}
-url = f"{WEBAPP_URL}?{urllib.parse.urlencode(params)}"
+def request_handoff_json(webapp_url, token):
+    params = {'mode': 'json', 'key': token}
+    url = f"{webapp_url}?{urllib.parse.urlencode(params)}"
 
-try:
-    with urllib.request.urlopen(url) as r:
-        response_text = r.read().decode("utf-8")
-        # 디버깅: 서버가 무엇을 보냈는지 확인
-        if not response_text.startswith('{'):
-             print(f"서버가 JSON이 아닌 응답을 보냈습니다 (HTML 오류 페이지일 수 있음): {response_text[:200]}...")
-             raise json.JSONDecodeError("Response was not JSON", response_text, 0)
-            
-        data = json.loads(response_text)
-        if data.get("error"):
-            print(f"API 오류: {data['error']}")
-            exit(1)
+    try:
+        with urllib.request.urlopen(url) as r:
+            response_text = r.read().decode("utf-8")
+            if not response_text.startswith('{'):
+                raise json.JSONDecodeError("Response was not JSON", response_text, 0)
+            data = json.loads(response_text)
+            if data.get("error"):
+                raise RuntimeError(f"API 오류: {data['error']}")
+            return data
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"API 호출 실패(JSON 오류): {e}") from e
+    except Exception as e:
+        raise RuntimeError(f"API 호출 실패: {e}") from e
 
-except json.JSONDecodeError as e:
-    print(f"API 호출 실패: JSON 디코딩 오류.")
-    print(f"오류 상세: {e}")
-    exit(1)
-except Exception as e:
-    print(f"API 호출 실패: {e}")
-    exit(1)
 
-# 3. [핵심] 동적 마크다운 생성
-ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-out_path = pathlib.Path(f"examples/handoff_{ts}.md")
-out_path.parent.mkdir(parents=True, exist_ok=True)
+def build_markdown(data, timestamp):
+    content = [f"# HANDOFF Snapshot ({timestamp})"]
+    parsed_at = data.get("parsed_at")
+    last_updated = data.get("last_updated")
+    revision_id = data.get("revision_id")
+    doc_url = data.get("doc_url")
 
-content = [f"# HANDOFF Snapshot ({ts})"]
+    meta_line = []
+    if parsed_at:
+        meta_line.append(f"Parsed at: {parsed_at}")
+    if last_updated:
+        meta_line.append(f"GDoc Last Updated: {last_updated}")
+    if revision_id:
+        meta_line.append(f"Revision: {revision_id}")
+    if meta_line:
+        content.append(f"*({' | '.join(meta_line)})*\n")
+    if doc_url:
+        content.append(f"[원문 문서 열기]({doc_url})\n")
 
-# JSON 키-값을 순회하며 마크다운 섹션 자동 생성
-for key, value in data.items():
-    if key == "parsed_at":
-        content.append(f"*(Parsed at: {value})*\n")
-    elif key == "Source Link":
-        content.append(f"## {key}\n- {value}\n")
-    else:
-        # 나머지 모든 섹션 (TL;DR, Startup Decisions, 소설 플롯 등)
-        content.append(f"## {key}\n{value}\n")
+    for key, value in data.items():
+        if key in SKIP_KEYS or key is None:
+            continue
+        if key == "parsed_at":
+            continue
+        if key == "Source Link":
+            content.append(f"## {key}\n- {value}\n")
+        else:
+            content.append(f"## {key}\n{value}\n")
+    return "\n".join(content)
 
-# 4. 파일 쓰기
-out_path.write_text("\n".join(content), encoding="utf-8")
-print(f"성공! '{out_path}' 파일에 최신 핸드오프가 저장되었습니다.")
+
+def read_cached_revision():
+    try:
+        return REVISION_CACHE_PATH.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
+
+
+def write_cached_revision(revision_id):
+    if not revision_id:
+        return
+    REVISION_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REVISION_CACHE_PATH.write_text(revision_id, encoding="utf-8")
+
+
+def describe_revision_change(previous, current):
+    if not current:
+        return "Revision 정보를 가져오지 못했습니다."
+    if not previous:
+        return f"최초 동기화 완료 (Revision: {current})."
+    if previous == current:
+        return "변경 사항 없음 — 문서는 마지막 스냅샷과 동일합니다."
+    return f"새 리비전 감지: {current} (이전: {previous})"
+
+
+def main():
+    if not all([WEBAPP_URL, API_TOKEN]):
+        print("오류: .env 파일에 WEBAPP_URL, API_TOKEN이 모두 설정되어야 합니다.")
+        return
+
+    print("v2.2 API 서버(JSON 모드)에서 최신 데이터를 가져오는 중...")
+    data = request_handoff_json(WEBAPP_URL, API_TOKEN)
+
+    revision_message = describe_revision_change(read_cached_revision(), data.get("revision_id"))
+    print(revision_message)
+
+    ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    out_path = pathlib.Path(f"examples/handoff_{ts}.md")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(build_markdown(data, ts), encoding="utf-8")
+
+    write_cached_revision(data.get("revision_id"))
+    print(f"성공! '{out_path}' 파일에 최신 핸드오프가 저장되었습니다.")
+
+
+if __name__ == "__main__":
+    main()

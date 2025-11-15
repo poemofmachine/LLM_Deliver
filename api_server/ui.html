@@ -9,12 +9,29 @@
     button { padding: 10px 15px; background-color: #007BFF; color: white; border: none; cursor: pointer; }
     #status { margin-top: 15px; font-weight: bold; }
     .doc-link { margin-top: 20px; }
+    .sync-panel { background: #fff; padding: 15px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .sync-panel h3 { margin-top: 0; }
+    .sync-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+    .sync-label { font-weight: bold; }
   </style>
 </head>
 <body>
   <h2>🧠 Memory Handoff Hub (v2.2)</h2>
   
   <p>Gemini/ChatGPT에서 생성한 [HANDOFF] 블록을 아래에 붙여넣고 [GDoc에 저장] 버튼을 누르세요.</p>
+
+  <div class="sync-panel">
+    <h3>세션 동기화</h3>
+    <div class="sync-row">
+      <div class="sync-label">Revision:</div>
+      <div id="revisionValue">-</div>
+    </div>
+    <div class="sync-row">
+      <div class="sync-label">Last Updated:</div>
+      <div id="lastUpdatedValue">-</div>
+    </div>
+    <button onclick="refreshMetadata()">최신 상태 불러오기</button>
+  </div>
   
   <textarea id="handoffText" placeholder="[HANDOFF]... 블록을 여기에 붙여넣으세요..."></textarea>
   <br>
@@ -25,42 +42,86 @@
   <div class="doc-link"><a id="docLink" href="#" target="_blank"></a></div>
 
   <script>
+    let currentRevision = '';
+
     // 페이지 로드 시 GDoc 정보 가져오기 (C님의 getDocInfo() 호출)
     document.addEventListener("DOMContentLoaded", function() {
+      refreshMetadata();
+    });
+
+    function refreshMetadata() {
+      document.getElementById("status").innerText = "동기화 중...";
       google.script.run.withSuccessHandler(function(info) {
+        currentRevision = info.revisionId || '';
         document.getElementById("docLink").href = info.url;
         document.getElementById("docLink").innerText = "» " + info.name + " 열기";
+        document.getElementById("revisionValue").innerText = currentRevision || '-';
+        document.getElementById("lastUpdatedValue").innerText = info.lastUpdated || '-';
+        document.getElementById("status").innerText = "✅ 최신 상태를 불러왔습니다.";
+      }).withFailureHandler(function(err) {
+        document.getElementById("status").innerText = "❌ 메타데이터를 가져올 수 없습니다: " + err.message;
       }).getDocInfo();
-    });
+    }
 
     // 핸드오프 저장 (C님의 doPost() 호출)
     function saveHandoff() {
+      if (!currentRevision) {
+        document.getElementById("status").innerText = "⚠️ 먼저 [최신 상태 불러오기]로 동기화하세요.";
+        return;
+      }
       document.getElementById("status").innerText = "저장 중...";
       var text = document.getElementById("handoffText").value;
-      
-      // v2.2 보안: Apps Script의 API 토큰을 여기서 가져와야 합니다.
-      // (이 예제는 편의상 UI에서 토큰을 입력받는 것을 생략했습니다)
-      // (실제 운영 시에는 UI 로그인/토큰 관리 기능이 필요합니다)
-      
-      // C님의 `doPost`는 `text/plain`을 받으므로 `google.script.run` 대신
-      // `fetch`를 사용해 URL로 POST 요청을 보내는 것이 더 표준적입니다.
-      // (단, 이 예제는 `google.script.run`을 사용한 간편 버전입니다.)
-
-      // C님의 `appendHandoff` 함수를 서버사이드에서 직접 호출합니다.
-      // (이 방식은 보안 토큰(SECRET) 검사를 우회하므로, UI 전용입니다.)
       google.script.run
         .withSuccessHandler(function(response) {
-          document.getElementById("status").innerText = "✅ 저장 성공! (Status: " + response.status + ")";
-          document.getElementById("handoffText").value = ""; // 입력창 비우기
+          handleSaveResponse(response);
         })
         .withFailureHandler(function(err) {
           document.getElementById("status").innerText = "❌ 저장 실패: " + err.message;
         })
-        .appendHandoff(text); // `doPost` 대신 `appendHandoff` 직접 호출
+        .syncHandoff(text, currentRevision);
     }
 
     function openDoc() {
       window.open(document.getElementById("docLink").href);
+    }
+
+    function handleSaveResponse(response) {
+      if (!response || !response.status) {
+        document.getElementById("status").innerText = "❌ 알 수 없는 응답입니다.";
+        return;
+      }
+
+      if (response.status === 'CONFLICT') {
+        document.getElementById("status").innerText = "⚠️ 다른 사용자가 먼저 저장했습니다. 다시 동기화 후 시도하세요.";
+        refreshMetadata();
+        return;
+      }
+
+      if (response.status === 'MISSING_REVISION') {
+        document.getElementById("status").innerText = "⚠️ 리비전 정보가 없습니다. [최신 상태 불러오기]를 다시 실행하세요.";
+        refreshMetadata();
+        return;
+      }
+
+      if (response.status === 'LOCK_TIMEOUT') {
+        document.getElementById("status").innerText = "⏳ 잠시 후 다시 시도하세요. 현재 다른 사용자가 저장 중입니다.";
+        return;
+      }
+
+      if (response.status === 'OK') {
+        document.getElementById("status").innerText = "✅ 저장 성공!";
+        document.getElementById("handoffText").value = "";
+      } else {
+        document.getElementById("status").innerText = "⚠️ 상태: " + response.status;
+      }
+
+      if (response.revisionId) {
+        currentRevision = response.revisionId;
+        document.getElementById("revisionValue").innerText = currentRevision;
+      }
+      if (response.last_updated) {
+        document.getElementById("lastUpdatedValue").innerText = response.last_updated;
+      }
     }
   </script>
 </body>
