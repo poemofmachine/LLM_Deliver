@@ -9,6 +9,7 @@ var DOC_ID = '13hkVp2_6s2AcVgtcRUtMyqXCGGCJfjOkJWvq-XCgyu4'; // 기본 개인 �
 var TEAM_MAP_PROP = 'TEAM_MAP'; // Script Properties에 저장된 팀 키 → 문서 매핑
 var LOCK_WAIT_MS = 10000; // 동시 저장 방지를 위한 락 대기 시간
 var PROP_LAST_REVISION_PREFIX = 'LAST_REVISION_'; // 문서별 리비전 키 prefix
+var PROP_LAST_UPDATED_PREFIX = 'LAST_UPDATED_'; // 문서별 최근 동기화 시간
 var DEFAULT_SCOPE = 'personal';
 var SCOPE_PERSONAL = 'personal';
 var SCOPE_TEAM = 'team';
@@ -104,6 +105,23 @@ function bumpRevisionForDoc(docId) {
   var nextRevision = Utilities.getUuid();
   getScriptProperties().setProperty(getRevisionKey(docId), nextRevision);
   return nextRevision;
+}
+
+function getLastUpdatedKey(docId) {
+  return PROP_LAST_UPDATED_PREFIX + (docId || 'default');
+}
+
+function setLastUpdatedForDoc(docId, dateObj) {
+  var timestamp = (dateObj || new Date()).getTime().toString();
+  getScriptProperties().setProperty(getLastUpdatedKey(docId), timestamp);
+}
+
+function getLastUpdatedForDoc(docId) {
+  var raw = getScriptProperties().getProperty(getLastUpdatedKey(docId));
+  if (!raw) return null;
+  var millis = parseInt(raw, 10);
+  if (isNaN(millis)) return null;
+  return new Date(millis);
 }
 
 function formatISO(dateObj) {
@@ -313,6 +331,7 @@ function appendHandoff(text, context) {
   });
 
   doc.saveAndClose();
+  setLastUpdatedForDoc(context.docId, new Date());
   return {
     status: 'OK',
     url: 'https://docs.google.com/document/d/' + context.docId + '/edit',
@@ -321,8 +340,11 @@ function appendHandoff(text, context) {
 }
 
 function getDocumentMeta(context, cachedDoc) {
+  if (!context || !context.docId) {
+    throw new Error('DOC_CONTEXT_MISSING');
+  }
   var doc = cachedDoc || DocumentApp.openById(context.docId);
-  var updatedAt = doc.getLastUpdated();
+  var updatedAt = getLastUpdatedForDoc(context.docId) || new Date();
   return {
     id: context.docId,
     name: doc.getName(),

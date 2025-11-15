@@ -42,10 +42,12 @@ def read_clipboard() -> str:
     return data
 
 
-def build_post_url(base_url: str, token: str, scope: str, team: str) -> str:
+def build_post_url(base_url: str, token: str, scope: str, team: str, revision: str) -> str:
     params = {"key": token, "scope": scope}
     if scope == "team":
         params["team"] = team or ""
+    if revision:
+        params["revision"] = revision
     return f"{base_url}?{urllib.parse.urlencode(params)}"
 
 
@@ -65,11 +67,11 @@ def fetch_revision(base_url: str, token: str, scope: str, team: str) -> str:
     data = json.loads(body)
     if data.get("error"):
         raise RuntimeError(f"Revision 조회 실패: {data['error']}")
-    return data.get("revision_id") or ""
+    return data.get("revision_id") or data.get("revisionId") or ""
 
 
 def post_handoff(base_url: str, token: str, scope: str, team: str, revision: str, text: str) -> dict:
-    url = build_post_url(base_url, token, scope, team)
+    url = build_post_url(base_url, token, scope, team, revision)
     data = text.encode("utf-8")
     request = urllib.request.Request(url, data=data, method="POST")
     request.add_header("Content-Type", "text/plain; charset=utf-8")
