@@ -22,8 +22,12 @@ class SyncFlowTests(unittest.TestCase):
         fake_response.__enter__.return_value = fake_response
         mock_urlopen.return_value = fake_response
 
-        data = fm.request_handoff_json("https://example.com", "token")
+        data = fm.request_handoff_json("https://example.com/api", "token", "team", "alpha", "bug")
         self.assertEqual(data, payload)
+        called_url = mock_urlopen.call_args[0][0]
+        self.assertIn("scope=team", called_url)
+        self.assertIn("team=alpha", called_url)
+        self.assertIn("category=bug", called_url)
 
     @mock.patch("clients.python.fetch_memory.urllib.request.urlopen")
     def test_request_handoff_json_invalid_payload(self, mock_urlopen):
@@ -33,7 +37,11 @@ class SyncFlowTests(unittest.TestCase):
         mock_urlopen.return_value = fake_response
 
         with self.assertRaises(RuntimeError):
-            fm.request_handoff_json("https://example.com", "token")
+            fm.request_handoff_json("https://example.com", "token", "personal", "", "")
+
+    def test_sanitize_scope_defaults(self):
+        self.assertEqual(fm.sanitize_scope("TEAM"), "team")
+        self.assertEqual(fm.sanitize_scope("unknown"), "personal")
 
 
 if __name__ == "__main__":

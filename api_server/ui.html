@@ -9,10 +9,15 @@
     button { padding: 10px 15px; background-color: #007BFF; color: white; border: none; cursor: pointer; }
     #status { margin-top: 15px; font-weight: bold; }
     .doc-link { margin-top: 20px; }
-    .sync-panel { background: #fff; padding: 15px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .sync-panel h3 { margin-top: 0; }
+    .panel { background: #fff; padding: 15px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .panel h3 { margin-top: 0; }
     .sync-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
     .sync-label { font-weight: bold; }
+    .scope-options label { margin-right: 15px; }
+    select { padding: 6px; }
+    .subtle { font-size: 0.9em; color: #555; }
+    #teamSelectContainer { margin-top: 10px; }
+    #categoryInfo { margin-top: 8px; font-size: 0.9em; color: #333; }
   </style>
 </head>
 <body>
@@ -20,7 +25,21 @@
   
   <p>Gemini/ChatGPT에서 생성한 [HANDOFF] 블록을 아래에 붙여넣고 [GDoc에 저장] 버튼을 누르세요.</p>
 
-  <div class="sync-panel">
+  <div class="panel">
+    <h3>대상 문서 선택</h3>
+    <div class="scope-options">
+      <label><input type="radio" name="scope" value="personal" checked> 개인용</label>
+      <label><input type="radio" name="scope" value="team"> 팀용</label>
+    </div>
+    <div id="teamSelectContainer">
+      <span class="sync-label">팀 선택:</span>
+      <select id="teamSelect" disabled>
+        <option value="">등록된 팀 없음</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="panel">
     <h3>세션 동기화</h3>
     <div class="sync-row">
       <div class="sync-label">Revision:</div>
@@ -40,33 +59,119 @@
   
   <div id="status"></div>
   <div class="doc-link"><a id="docLink" href="#" target="_blank"></a></div>
+  <div id="categoryInfo" class="subtle"></div>
 
   <script>
     let currentRevision = '';
+    let currentScope = 'personal';
+    let currentTeamKey = '';
+    let teamOptions = [];
 
     // 페이지 로드 시 GDoc 정보 가져오기 (C님의 getDocInfo() 호출)
     document.addEventListener("DOMContentLoaded", function() {
-      refreshMetadata();
+      setupScopeListeners();
+      loadTeamOptions(function() {
+        refreshMetadata();
+      });
     });
 
+    function setupScopeListeners() {
+      document.querySelectorAll('input[name="scope"]').forEach(function(input) {
+        input.addEventListener('change', function(event) {
+          currentScope = event.target.value;
+          if (currentScope !== 'team') {
+            currentTeamKey = '';
+          } else if (!currentTeamKey && teamOptions.length) {
+            currentTeamKey = teamOptions[0].key;
+          }
+          updateTeamSelectState();
+          refreshMetadata();
+        });
+      });
+
+      document.getElementById("teamSelect").addEventListener('change', function(event) {
+        currentTeamKey = event.target.value;
+        refreshMetadata();
+      });
+    }
+
+    function loadTeamOptions(callback) {
+      google.script.run.withSuccessHandler(function(list) {
+        teamOptions = list || [];
+        renderTeamSelect();
+        if (typeof callback === "function") callback();
+      }).withFailureHandler(function(err) {
+        document.getElementById("status").innerText = "⚠️ 팀 목록을 불러오지 못했습니다: " + err.message;
+        if (typeof callback === "function") callback();
+      }).getTeamList();
+    }
+
+    function renderTeamSelect() {
+      const container = document.getElementById("teamSelectContainer");
+      const select = document.getElementById("teamSelect");
+      select.innerHTML = "";
+
+      if (!teamOptions.length) {
+        container.style.display = 'none';
+        currentTeamKey = '';
+        return;
+      }
+
+      container.style.display = 'block';
+      teamOptions.forEach(function(team, idx) {
+        const option = document.createElement("option");
+        option.value = team.key;
+        option.textContent = team.key;
+        select.appendChild(option);
+      });
+
+      if (!currentTeamKey || !teamOptions.some(function(team) { return team.key === currentTeamKey; })) {
+        currentTeamKey = teamOptions[0].key;
+      }
+      select.value = currentTeamKey;
+      updateTeamSelectState();
+    }
+
+    function updateTeamSelectState() {
+      const select = document.getElementById("teamSelect");
+      const container = document.getElementById("teamSelectContainer");
+      const disabled = currentScope !== 'team';
+      select.disabled = disabled;
+      container.style.opacity = disabled ? 0.5 : 1;
+    }
+
     function refreshMetadata() {
+      if (currentScope === 'team' && !currentTeamKey) {
+        document.getElementById("status").innerText = "⚠️ 팀 문서를 사용하려면 팀을 먼저 등록하세요.";
+        return;
+      }
       document.getElementById("status").innerText = "동기화 중...";
       google.script.run.withSuccessHandler(function(info) {
+        if (info.error) {
+          document.getElementById("status").innerText = "❌ 메타데이터 오류: " + info.error;
+          return;
+        }
         currentRevision = info.revisionId || '';
         document.getElementById("docLink").href = info.url;
-        document.getElementById("docLink").innerText = "» " + info.name + " 열기";
+        const scopeTag = info.scope === 'team' ? ("팀:" + (info.teamKey || '?')) : "개인";
+        document.getElementById("docLink").innerText = "» [" + scopeTag + "] " + info.name + " 열기";
         document.getElementById("revisionValue").innerText = currentRevision || '-';
         document.getElementById("lastUpdatedValue").innerText = info.lastUpdated || '-';
         document.getElementById("status").innerText = "✅ 최신 상태를 불러왔습니다.";
+        renderCategories([]);
       }).withFailureHandler(function(err) {
         document.getElementById("status").innerText = "❌ 메타데이터를 가져올 수 없습니다: " + err.message;
-      }).getDocInfo();
+      }).getDocInfo(currentScope, currentTeamKey);
     }
 
     // 핸드오프 저장 (C님의 doPost() 호출)
     function saveHandoff() {
       if (!currentRevision) {
         document.getElementById("status").innerText = "⚠️ 먼저 [최신 상태 불러오기]로 동기화하세요.";
+        return;
+      }
+      if (currentScope === 'team' && !currentTeamKey) {
+        document.getElementById("status").innerText = "⚠️ 팀 문서 저장 전 팀을 선택하세요.";
         return;
       }
       document.getElementById("status").innerText = "저장 중...";
@@ -78,7 +183,7 @@
         .withFailureHandler(function(err) {
           document.getElementById("status").innerText = "❌ 저장 실패: " + err.message;
         })
-        .syncHandoff(text, currentRevision);
+        .syncHandoff(text, currentRevision, currentScope, currentTeamKey);
     }
 
     function openDoc() {
@@ -122,6 +227,18 @@
       if (response.last_updated) {
         document.getElementById("lastUpdatedValue").innerText = response.last_updated;
       }
+      if (response.categories) {
+        renderCategories(response.categories);
+      }
+    }
+
+    function renderCategories(categories) {
+      const el = document.getElementById("categoryInfo");
+      if (!categories || !categories.length) {
+        el.innerText = "";
+        return;
+      }
+      el.innerText = "자동 태그: " + categories.join(", ");
     }
   </script>
 </body>

@@ -16,12 +16,30 @@ load_dotenv()
 WEBAPP_URL = os.getenv("WEBAPP_URL")
 API_TOKEN = os.getenv("API_TOKEN")
 REVISION_CACHE_PATH = pathlib.Path("clients/python/.revision_cache")
+DEFAULT_SCOPE = "personal"
+SKIP_KEYS = {
+    "parsed_at",
+    "revision_id",
+    "last_updated",
+    "doc_url",
+    "categories",
+    "scope",
+    "team_key",
+    "matched_category",
+}
 
-SKIP_KEYS = {"parsed_at", "revision_id", "last_updated", "doc_url"}
+
+def sanitize_scope(value: str) -> str:
+    scope = (value or DEFAULT_SCOPE).strip().lower()
+    return scope if scope in {"personal", "team"} else DEFAULT_SCOPE
 
 
-def request_handoff_json(webapp_url, token):
-    params = {'mode': 'json', 'key': token}
+def request_handoff_json(webapp_url, token, scope, team_key, category_filter):
+    params = {'mode': 'json', 'key': token, 'scope': scope}
+    if team_key:
+        params['team'] = team_key
+    if category_filter:
+        params['category'] = category_filter
     url = f"{webapp_url}?{urllib.parse.urlencode(params)}"
 
     try:
@@ -45,6 +63,10 @@ def build_markdown(data, timestamp):
     last_updated = data.get("last_updated")
     revision_id = data.get("revision_id")
     doc_url = data.get("doc_url")
+    scope = data.get("scope")
+    team_key = data.get("team_key")
+    matched_category = data.get("matched_category")
+    categories = data.get("categories") or []
 
     meta_line = []
     if parsed_at:
@@ -53,10 +75,18 @@ def build_markdown(data, timestamp):
         meta_line.append(f"GDoc Last Updated: {last_updated}")
     if revision_id:
         meta_line.append(f"Revision: {revision_id}")
+    if scope:
+        meta_line.append(f"Scope: {scope}")
+    if team_key:
+        meta_line.append(f"Team: {team_key}")
+    if matched_category:
+        meta_line.append(f"Matched Category: {matched_category}")
     if meta_line:
         content.append(f"*({' | '.join(meta_line)})*\n")
     if doc_url:
         content.append(f"[원문 문서 열기]({doc_url})\n")
+    if categories:
+        content.append(f"*Categories: {', '.join(categories)}*\n")
 
     for key, value in data.items():
         if key in SKIP_KEYS or key is None:
@@ -99,8 +129,15 @@ def main():
         print("오류: .env 파일에 WEBAPP_URL, API_TOKEN이 모두 설정되어야 합니다.")
         return
 
+    scope = sanitize_scope(os.getenv("SCOPE", DEFAULT_SCOPE))
+    team_key = (os.getenv("TEAM_KEY") or "").strip()
+    category_filter = (os.getenv("CATEGORY_FILTER") or "").strip()
+
     print("v2.2 API 서버(JSON 모드)에서 최신 데이터를 가져오는 중...")
-    data = request_handoff_json(WEBAPP_URL, API_TOKEN)
+    print(f"- Scope: {scope} / Team: {team_key or '-'} / Category: {category_filter or 'ALL'}")
+    if scope == "team" and not team_key:
+        print("  ⚠️ TEAM_KEY가 비어 있습니다. 서버의 기본 팀이 사용됩니다.")
+    data = request_handoff_json(WEBAPP_URL, API_TOKEN, scope, team_key, category_filter)
 
     revision_message = describe_revision_change(read_cached_revision(), data.get("revision_id"))
     print(revision_message)

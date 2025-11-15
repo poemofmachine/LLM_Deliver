@@ -1,41 +1,108 @@
 /**
  * =========================
- * C_Assistant_Protocol v2.2
- * (UI + Dynamic JSON API)
+ * C_Assistant_Protocol v2.2+
+ * (멀티 문서 + 카테고리 동기화)
  * =========================
- * - C님의 'doPost'/'appendHandoff' 로직 (UI, 쓰기) 채택
- * - v2.0의 '보안 (PropertiesService)' 및 '동적 JSON (읽기)' 로직 결합
  */
 
-// [사용자 설정] 이 GDoc ID는 본인의 GDoc ID로 수정하세요.
-var DOC_ID = '13hkVp2_6s2AcVgtcRUtMyqXCGGCJfjOkJWvq-XCgyu4';
-var PROP_LAST_REVISION = 'LAST_REVISION';
-var LOCK_WAIT_MS = 10000;
-
-/**
- * [보안] 스크립트 속성에서 API 토큰(비밀번호)을 안전하게 가져옵니다.
- */
-function getSecret() {
-  return PropertiesService.getScriptProperties().getProperty('API_TOKEN');
-}
+var DOC_ID = '13hkVp2_6s2AcVgtcRUtMyqXCGGCJfjOkJWvq-XCgyu4'; // 기본 개인 문서
+var TEAM_MAP_PROP = 'TEAM_MAP'; // Script Properties에 저장된 팀 키 → 문서 매핑
+var LOCK_WAIT_MS = 10000; // 동시 저장 방지를 위한 락 대기 시간
+var PROP_LAST_REVISION_PREFIX = 'LAST_REVISION_'; // 문서별 리비전 키 prefix
+var DEFAULT_SCOPE = 'personal';
+var SCOPE_PERSONAL = 'personal';
+var SCOPE_TEAM = 'team';
+var CATEGORY_RULES = [
+  { name: 'MEETING', keywords: ['meeting', '회의', 'standup', 'sync'] },
+  { name: 'BUG', keywords: ['bug', 'issue', '오류', 'error', '디버그'] },
+  { name: 'FEATURE', keywords: ['feature', '기능', '스펙', 'spec'] },
+  { name: 'RESEARCH', keywords: ['research', '조사', 'analysis', '분석'] },
+  { name: 'HANDOFF', keywords: ['handoff', '인수인계', 'handover'] }
+];
 
 function getScriptProperties() {
   return PropertiesService.getScriptProperties();
 }
 
-function ensureRevision() {
+function getSecret() {
+  return getScriptProperties().getProperty('API_TOKEN');
+}
+
+function getPersonalDocId() {
+  return getScriptProperties().getProperty('DOC_ID_PERSONAL') || DOC_ID;
+}
+
+// Script Properties에 저장된 JSON을 안전하게 객체로 변환
+function getTeamMap() {
+  var raw = getScriptProperties().getProperty(TEAM_MAP_PROP);
+  if (!raw) return {};
+  try {
+    var parsed = JSON.parse(raw);
+    return parsed || {};
+  } catch (err) {
+    return {};
+  }
+}
+
+function listTeamKeys() {
+  var map = getTeamMap();
+  var keys = [];
+  for (var key in map) {
+    if (map.hasOwnProperty(key)) keys.push(key);
+  }
+  return keys;
+}
+
+// 사용자가 전달한 scope 파라미터를 표준화
+function normalizeScope(scope) {
+  var s = (scope || DEFAULT_SCOPE).toString().toLowerCase();
+  if (s === SCOPE_TEAM) return SCOPE_TEAM;
+  return SCOPE_PERSONAL;
+}
+
+// scope/teamKey 조합으로 실제 문서 ID를 결정
+function resolveDocContext(scope, teamKey) {
+  var normalizedScope = normalizeScope(scope);
+  if (normalizedScope === SCOPE_PERSONAL) {
+    return {
+      scope: SCOPE_PERSONAL,
+      teamKey: '',
+      docId: getPersonalDocId()
+    };
+  }
+
+  var map = getTeamMap();
+  var selectedTeam = teamKey || listTeamKeys()[0] || '';
+  if (!selectedTeam || !map[selectedTeam]) {
+    throw new Error('UNKNOWN_TEAM');
+  }
+  return {
+    scope: SCOPE_TEAM,
+    teamKey: selectedTeam,
+    docId: map[selectedTeam]
+  };
+}
+
+// 문서별 리비전 키 생성
+function getRevisionKey(docId) {
+  return PROP_LAST_REVISION_PREFIX + (docId || 'default');
+}
+
+// 문서별 리비전 값을 확보 (없으면 새로 발급)
+function ensureRevisionForDoc(docId) {
   var props = getScriptProperties();
-  var current = props.getProperty(PROP_LAST_REVISION);
+  var revKey = getRevisionKey(docId);
+  var current = props.getProperty(revKey);
   if (!current) {
     current = Utilities.getUuid();
-    props.setProperty(PROP_LAST_REVISION, current);
+    props.setProperty(revKey, current);
   }
   return current;
 }
 
-function bumpRevision() {
+function bumpRevisionForDoc(docId) {
   var nextRevision = Utilities.getUuid();
-  getScriptProperties().setProperty(PROP_LAST_REVISION, nextRevision);
+  getScriptProperties().setProperty(getRevisionKey(docId), nextRevision);
   return nextRevision;
 }
 
@@ -43,180 +110,269 @@ function formatISO(dateObj) {
   return Utilities.formatDate(dateObj || new Date(), 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
 }
 
+function normalizeCategoryName(name) {
+  return (name || '').toString().trim().toUpperCase();
+}
+
+// 간단한 키워드 기반 카테고리 추론
+function deriveCategories(text) {
+  var body = (text || '').toLowerCase();
+  var categories = [];
+  CATEGORY_RULES.forEach(function(rule) {
+    var matched = rule.keywords.some(function(keyword) {
+      return keyword && body.indexOf(keyword.toLowerCase()) !== -1;
+    });
+    if (matched) categories.push(rule.name);
+  });
+  if (!categories.length) categories.push('GENERAL');
+  return categories;
+}
+
+// 블록 안의 [AUTO_CATEGORY] 라인을 파싱
+function extractCategories(blockText) {
+  var match = (blockText || '').match(/\[AUTO_CATEGORY\]\s*([^\n]+)/i);
+  if (!match) return [];
+  return match[1].split(',').map(function(item) {
+    return normalizeCategoryName(item);
+  }).filter(function(item) { return item; });
+}
+
+// 자동 카테고리 라인을 HANDOFF 블록에 삽입
+function injectAutoCategoryLine(text, categories) {
+  if (!categories || !categories.length) return text;
+  if (/\[AUTO_CATEGORY\]/i.test(text)) return text;
+  var catLine = '[AUTO_CATEGORY] ' + categories.join(', ');
+  if (/^\s*\[HANDOFF\]/i.test(text || '')) {
+    var idx = text.indexOf('\n');
+    if (idx === -1) return text + '\n' + catLine;
+    return text.slice(0, idx + 1) + catLine + '\n' + text.slice(idx + 1);
+  }
+  return catLine + '\n' + text;
+}
+
+// 문서를 '---' 구분자로 나눠 최신 블록 배열을 만듭니다.
+function splitBlocks(rawText) {
+  var parts = (rawText || '').split(/\n---\n/g);
+  var blocks = [];
+  for (var i = 0; i < parts.length; i++) {
+    var trimmed = parts[i].trim();
+    if (!trimmed) continue;
+    blocks.push({
+      text: trimmed,
+      categories: extractCategories(trimmed)
+    });
+  }
+  return blocks;
+}
+
+// 카테고리 필터가 있으면 해당 블록, 없으면 최신 블록을 선택
+function selectBlock(blocks, categoryFilter) {
+  if (!blocks.length) {
+    return {
+      block: { text: '', categories: [] },
+      matchedCategory: ''
+    };
+  }
+
+  var normalizedFilter = normalizeCategoryName(categoryFilter);
+  if (normalizedFilter) {
+    for (var i = blocks.length - 1; i >= 0; i--) {
+      if (blocks[i].categories.indexOf(normalizedFilter) !== -1) {
+        return {
+          block: blocks[i],
+          matchedCategory: normalizedFilter
+        };
+      }
+    }
+  }
+
+  return {
+    block: blocks[blocks.length - 1],
+    matchedCategory: ''
+  };
+}
+
+// Apps Script 이벤트에서 안전하게 파라미터 추출
+function getParameter(e, key) {
+  return (e && e.parameter && (e.parameter[key] || e.parameter[key.toLowerCase()])) || '';
+}
+
+function getTeamParameter(e) {
+  return getParameter(e, 'team_key') || getParameter(e, 'team');
+}
+
 /**
  * [READ] GET 요청 처리 (UI 또는 JSON 데이터)
- * mode=ui    : (기본값) HTML 웹페이지 UI를 로드합니다.
- * mode=json  : (보안) 최신 핸드S오프 블록을 '동적 JSON'으로 반환합니다.
  */
 function doGet(e) {
-  var m = (e && e.parameter && e.parameter.mode) || 'ui';
-
-  // 1. JSON API 모드 (Python/Tasker용)
+  var m = getParameter(e, 'mode') || 'ui';
   if (m === 'json') {
-    var key = (e && e.parameter && e.parameter.key) || '';
-    // v2.2 보안: API 토큰 검사
+    var key = getParameter(e, 'key');
     if (key !== getSecret()) {
       return createJSON({ error: 'UNAUTHORIZED' });
     }
-    // v2.2 기능: 텍스트가 아닌 'JSON' 반환
-    return createJSON(getLatestAsJSON());
+    try {
+      var scope = getParameter(e, 'scope') || DEFAULT_SCOPE;
+      var teamKey = getTeamParameter(e);
+      var categoryFilter = getParameter(e, 'category');
+      var context = resolveDocContext(scope, teamKey);
+      return createJSON(getLatestAsJSON(context, categoryFilter));
+    } catch (err) {
+      return createJSON({ error: err.message || 'CONTEXT_ERROR' });
+    }
   }
-  
-  // 2. UI 모드 (웹 브라우저용)
-  // (보안 토큰 없이도 UI 페이지 자체는 로드할 수 있도록 허용)
+
   return HtmlService.createHtmlOutputFromFile('ui')
     .setTitle('Memory Handoff Hub')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /**
- * [WRITE] POST 요청 처리 (외부 자동화 도구용)
- * Tasker, Python 등에서 GDoc에 [HANDOFF] 블록을 '쓰기' 위해 사용합니다.
+ * [WRITE] POST 요청 처리
  */
 function doPost(e) {
-  var key = (e && e.parameter && e.parameter.key) || '';
-
-  // v2.2 보안: API 토큰 검사
+  var key = getParameter(e, 'key');
   if (key !== getSecret()) {
     return createJSON({ error: 'UNAUTHORIZED' });
   }
 
-  // C님의 'text/plain' 및 'form-data' 동시 지원 로직 (우수함)
   var text = '';
   if (e && e.postData && e.postData.contents) text = String(e.postData.contents);
   if (!text && e && e.parameter && e.parameter.text) text = String(e.parameter.text);
 
-  var providedRevision = (e && e.parameter && e.parameter.revision) || '';
-  var result = syncHandoff(text, providedRevision);
+  var providedRevision = getParameter(e, 'revision');
+  var scope = getParameter(e, 'scope') || DEFAULT_SCOPE;
+  var teamKey = getTeamParameter(e);
+  var result = syncHandoff(text, providedRevision, scope, teamKey);
   return createJSON(result);
 }
 
 // ==========================================================
-//  v2.2 Helper Functions (C님 로직 + v2.0 로직)
+//  Helper Functions
 // ==========================================================
 
-/**
- * [CORE UPGRADE] 최신 핸드오프를 '동적 JSON'으로 파싱합니다.
- * v2.0의 핵심 로직을 여기에 통합합니다.
- */
-function getLatestAsJSON() {
-  const latestHandoffText = getLatestAsText(); // 1. 최신 텍스트 가져오기
-  const docMeta = getDocumentMeta();
-  
-  // 2. v2.0 동적 파싱 로직
-  const regex = /\[([a-zA-Z0-9_ ]+)\]([\s\S]*?)(?=\n\[[a-zA-Z0-9_ ]+\]|$)/g;
-  let sectionMatch;
-  const result = {
-    parsed_at: new Date().toISOString(),
-    revision_id: docMeta.revisionId,
-    last_updated: docMeta.lastUpdated,
-    doc_url: docMeta.url
-  };
+function parseHandoffSections(blockText) {
+  var regex = /\[([a-zA-Z0-9_ ]+)\]([\s\S]*?)(?=\n\[[a-zA-Z0-9_ ]+\]|$)/g;
+  var sectionMatch;
+  var parsed = {};
 
-  // [HANDOFF] 블록인지 확인
-  if (!/^\s*\[HANDOFF\]/.test(latestHandoffText)) {
-     // 핸드오프 블록이 아니면, 전체를 'content'로 반환
-     result["content"] = latestHandoffText;
-     return result;
+  if (!/^\s*\[HANDOFF\]/.test(blockText || '')) {
+    parsed.content = blockText;
+    return parsed;
   }
 
-  // 3. 동적으로 JSON 객체 생성
-  while ((sectionMatch = regex.exec(latestHandoffText)) !== null) {
-    const key = sectionMatch[1].trim();
-    const value = sectionMatch[2].trim();
-    if (key !== "HANDOFF") { // [HANDOFF] 태그 자체는 제외
-        result[key] = value;
+  while ((sectionMatch = regex.exec(blockText)) !== null) {
+    var key = sectionMatch[1].trim();
+    var value = sectionMatch[2].trim();
+    if (key !== 'HANDOFF') {
+      parsed[key] = value;
     }
+  }
+  return parsed;
+}
+
+function getLatestAsJSON(context, categoryFilter) {
+  var doc = DocumentApp.openById(context.docId);
+  var body = doc.getBody().getText();
+  var blocks = splitBlocks(body);
+  var selection = selectBlock(blocks, categoryFilter);
+  var parsed = parseHandoffSections(selection.block.text);
+
+  var meta = getDocumentMeta(context, doc);
+  var result = Object.assign({}, parsed, {
+    parsed_at: new Date().toISOString(),
+    revision_id: meta.revisionId,
+    last_updated: meta.lastUpdated,
+    doc_url: meta.url,
+    scope: context.scope,
+    categories: selection.block.categories,
+    team_key: context.teamKey || ''
+  });
+  if (selection.matchedCategory) {
+    result.matched_category = selection.matchedCategory;
   }
   return result;
 }
 
-/**
- * (C님 로직) GDoc에 텍스트를 '쓰는' 핵심 함수.
- * (수정 없음, 매우 훌륭한 로직)
- */
-function appendHandoff(text) {
+function appendHandoff(text, context) {
   text = (text || '').trim();
-  if (!text) return {status:'NO_TEXT'};
+  if (!text) return { status: 'NO_TEXT' };
 
   var now = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
-  var doc = DocumentApp.openById(DOC_ID);
+  var doc = DocumentApp.openById(context.docId);
+  var docName = doc.getName();
   var body = doc.getBody();
 
-  body.appendParagraph('---'); // 블록 위쪽에 구분선
-
+  body.appendParagraph('---');
   if (!/^\s*\[HANDOFF\]/.test(text)) {
     body.appendParagraph('[HANDOFF] ' + now + ' KST');
   }
 
-  text.split(/\r?\n/).forEach(function(line){
+  text.split(/\r?\n/).forEach(function(line) {
     body.appendParagraph(line);
   });
 
   doc.saveAndClose();
   return {
     status: 'OK',
-    url: 'https://docs.google.com/document/d/' + DOC_ID + '/edit',
-    name: DocumentApp.openById(DOC_ID).getName()
+    url: 'https://docs.google.com/document/d/' + context.docId + '/edit',
+    name: docName
   };
 }
 
-/**
- * (C님 로직) 최신 블록을 '순수 텍스트'로 가져옵니다. (JSON 파서의 재료)
- */
-function getLatestAsText() {
-  var doc = DocumentApp.openById(DOC_ID);
-  var t = doc.getBody().getText();
-  var parts = t.split(/\n---\n/g); // C님의 '---' 구분선 로직
-  return (parts[parts.length - 1] || t).trim();
-}
-
-/**
- * (C님 로직) UI에서 '문서 열기'용 정보를 가져옵니다.
- */
-function getDocInfo() {
-  var meta = getDocumentMeta();
+function getDocumentMeta(context, cachedDoc) {
+  var doc = cachedDoc || DocumentApp.openById(context.docId);
+  var updatedAt = doc.getLastUpdated();
   return {
-    id: meta.id,
-    url: meta.url,
-    name: meta.name,
-    lastUpdated: meta.lastUpdated,
-    revisionId: meta.revisionId
+    id: context.docId,
+    name: doc.getName(),
+    url: 'https://docs.google.com/document/d/' + context.docId + '/edit',
+    lastUpdated: formatISO(updatedAt),
+    revisionId: ensureRevisionForDoc(context.docId),
+    scope: context.scope,
+    teamKey: context.teamKey || ''
   };
 }
 
-/**
- * (v2.0 로직) JSON 응답을 생성합니다.
- */
+function getDocInfo(scope, teamKey) {
+  try {
+    var context = resolveDocContext(scope, teamKey);
+    return getDocumentMeta(context);
+  } catch (err) {
+    return { error: err.message || 'CONTEXT_ERROR' };
+  }
+}
+
+function getTeamList() {
+  var map = getTeamMap();
+  var teamKeys = [];
+  for (var key in map) {
+    if (!map.hasOwnProperty(key)) continue;
+    teamKeys.push({ key: key, docId: map[key] });
+  }
+  return teamKeys;
+}
+
 function createJSON(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/**
- * (확장) GDoc 메타데이터와 현재 리비전 상태를 함께 제공합니다.
- */
-function getDocumentMeta() {
-  var doc = DocumentApp.openById(DOC_ID);
-  var updatedAt = doc.getLastUpdated();
-  return {
-    id: DOC_ID,
-    name: doc.getName(),
-    url: 'https://docs.google.com/document/d/' + DOC_ID + '/edit',
-    lastUpdated: formatISO(updatedAt),
-    revisionId: ensureRevision()
-  };
-}
+function syncHandoff(text, revisionId, scope, teamKey) {
+  var context;
+  try {
+    context = resolveDocContext(scope, teamKey);
+  } catch (err) {
+    return { status: err.message || 'CONTEXT_ERROR' };
+  }
 
-/**
- * (확장) 리비전 체크/락을 포함한 쓰기 엔트리 포인트
- */
-function syncHandoff(text, revisionId) {
-  var currentRevision = ensureRevision();
+  var currentRevision = ensureRevisionForDoc(context.docId);
   if (!revisionId) {
     return {
       status: 'MISSING_REVISION',
-      revisionId: currentRevision
+      revisionId: currentRevision,
+      scope: context.scope,
+      teamKey: context.teamKey || ''
     };
   }
 
@@ -224,7 +380,9 @@ function syncHandoff(text, revisionId) {
     return {
       status: 'CONFLICT',
       revisionId: currentRevision,
-      providedRevision: revisionId
+      providedRevision: revisionId,
+      scope: context.scope,
+      teamKey: context.teamKey || ''
     };
   }
 
@@ -235,23 +393,30 @@ function syncHandoff(text, revisionId) {
     return {
       status: 'LOCK_TIMEOUT',
       message: '현재 다른 사용자가 저장 중입니다. 잠시 후 다시 시도하세요.',
-      revisionId: currentRevision
+      revisionId: currentRevision,
+      scope: context.scope,
+      teamKey: context.teamKey || ''
     };
   }
 
+  var categories = deriveCategories(text);
+  var preparedText = injectAutoCategoryLine(text, categories);
   var appendResult;
   try {
-    appendResult = appendHandoff(text);
+    appendResult = appendHandoff(preparedText, context);
     if (appendResult.status === 'OK') {
-      bumpRevision();
+      bumpRevisionForDoc(context.docId);
     }
   } finally {
     lock.releaseLock();
   }
 
-  var meta = getDocumentMeta();
+  var meta = getDocumentMeta(context);
   return Object.assign({}, appendResult, {
     revisionId: meta.revisionId,
-    last_updated: meta.lastUpdated
+    last_updated: meta.lastUpdated,
+    scope: context.scope,
+    teamKey: context.teamKey || '',
+    categories: categories
   });
 }
