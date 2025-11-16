@@ -6,7 +6,7 @@
   <style>
     body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; }
     textarea { width: 95%; height: 250px; margin-bottom: 10px; }
-    button { padding: 10px 15px; background-color: #007BFF; color: white; border: none; cursor: pointer; }
+    button { padding: 10px 15px; background-color: #007BFF; color: white; border: none; cursor: pointer; border-radius: 6px; }
     #status { margin-top: 15px; font-weight: bold; }
     .doc-link { margin-top: 20px; }
     .panel { background: #fff; padding: 15px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
@@ -18,12 +18,37 @@
     .subtle { font-size: 0.9em; color: #555; }
     #teamSelectContainer { margin-top: 10px; }
     #categoryInfo { margin-top: 8px; font-size: 0.9em; color: #333; }
+    .info-panel { display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap; }
+    .info-steps { margin: 0; padding-left: 18px; font-size: 0.95em; }
+    .guide-link { background-color: #28a745; }
+    .secondary { background-color: #6c757d; }
+    .action-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+    .guide-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 999; }
+    .guide-card { background: #fff; border-radius: 12px; padding: 20px; width: 95%; max-width: 520px; box-shadow: 0 6px 20px rgba(0,0,0,0.2); }
+    .guide-card h3 { margin-top: 0; }
+    .guide-card ol { padding-left: 20px; }
+    .guide-card footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
   <h2>🧠 Memory Handoff Hub (v2.2)</h2>
   
   <p>Gemini/ChatGPT에서 생성한 [HANDOFF] 블록을 아래에 붙여넣고 [GDoc에 저장] 버튼을 누르세요.</p>
+  <div class="panel info-panel">
+    <div>
+      <strong>빠른 순서</strong>
+      <ol class="info-steps">
+        <li>대상 문서(개인/팀)와 팀 키를 설정합니다.</li>
+        <li>[최신 상태 불러오기]로 리비전을 맞춥니다.</li>
+        <li>아래에 [HANDOFF]를 붙여넣고 저장합니다.</li>
+      </ol>
+    </div>
+    <div class="action-buttons">
+      <button class="guide-link" onclick="toggleGuide(true)">🧭 가이드 모드</button>
+      <button class="secondary" onclick="copyDocUrl()">URL 복사</button>
+    </div>
+  </div>
 
   <div class="panel">
     <h3>대상 문서 선택</h3>
@@ -58,8 +83,25 @@
   <button onclick="openDoc()">문서 열기</button>
   
   <div id="status"></div>
+  <div id="wizardTips" class="subtle"></div>
   <div class="doc-link"><a id="docLink" href="#" target="_blank"></a></div>
   <div id="categoryInfo" class="subtle"></div>
+  <div id="guideOverlay" class="guide-overlay hidden">
+    <div class="guide-card">
+      <h3>가이드 모드</h3>
+      <p>일반 사용자도 3단계 루틴만 익히면 됩니다. 필요한 항목을 선택하면 바로 화면이 세팅됩니다.</p>
+      <ol>
+        <li><strong>대상 문서:</strong> 개인용은 기본값, 팀 단위라면 팀을 고르세요.</li>
+        <li><strong>최신 리비전 받기:</strong> [최신 상태 불러오기]를 누르면 충돌을 예방합니다.</li>
+        <li><strong>[HANDOFF] 붙여넣기:</strong> 텍스트를 넣고 [GDoc에 저장]을 누르면 끝!</li>
+      </ol>
+      <footer>
+        <button class="secondary" onclick="toggleGuide(false)">닫기</button>
+        <button onclick="startWizard('personal')">개인용 시작</button>
+        <button onclick="startWizard('team')">팀용 시작</button>
+      </footer>
+    </div>
+  </div>
 
   <script>
     let currentRevision = '';
@@ -158,9 +200,11 @@
         document.getElementById("revisionValue").innerText = currentRevision || '-';
         document.getElementById("lastUpdatedValue").innerText = info.lastUpdated || '-';
         document.getElementById("status").innerText = "✅ 최신 상태를 불러왔습니다.";
+        setWizardTip("리비전을 맞췄습니다. [HANDOFF]를 붙여넣고 저장하세요.");
         renderCategories([]);
       }).withFailureHandler(function(err) {
         document.getElementById("status").innerText = "❌ 메타데이터를 가져올 수 없습니다: " + err.message;
+        setWizardTip("오류가 계속되면 토큰/권한을 확인하세요.");
       }).getDocInfo(currentScope, currentTeamKey);
     }
 
@@ -198,24 +242,28 @@
 
       if (response.status === 'CONFLICT') {
         document.getElementById("status").innerText = "⚠️ 다른 사용자가 먼저 저장했습니다. 다시 동기화 후 시도하세요.";
+        setWizardTip("리비전이 바뀌었습니다. [최신 상태 불러오기]를 먼저 눌러주세요.");
         refreshMetadata();
         return;
       }
 
       if (response.status === 'MISSING_REVISION') {
         document.getElementById("status").innerText = "⚠️ 리비전 정보가 없습니다. [최신 상태 불러오기]를 다시 실행하세요.";
+        setWizardTip("리비전이 비어 있습니다. Step 2를 다시 수행하세요.");
         refreshMetadata();
         return;
       }
 
       if (response.status === 'LOCK_TIMEOUT') {
         document.getElementById("status").innerText = "⏳ 잠시 후 다시 시도하세요. 현재 다른 사용자가 저장 중입니다.";
+        setWizardTip("다른 사용자가 저장 중입니다. 잠시 뒤 재시도하세요.");
         return;
       }
 
       if (response.status === 'OK') {
         document.getElementById("status").innerText = "✅ 저장 성공!";
         document.getElementById("handoffText").value = "";
+        setWizardTip("저장되었습니다. 같은 절차로 다음 세션을 기록하세요.");
       } else {
         document.getElementById("status").innerText = "⚠️ 상태: " + response.status;
       }
@@ -239,6 +287,75 @@
         return;
       }
       el.innerText = "자동 태그: " + categories.join(", ");
+    }
+
+    function toggleGuide(show) {
+      const overlay = document.getElementById("guideOverlay");
+      overlay.classList.toggle("hidden", show === false);
+      if (show) {
+        overlay.classList.remove("hidden");
+      }
+    }
+
+    function setWizardTip(text) {
+      const el = document.getElementById("wizardTips");
+      el.innerText = text || "";
+    }
+
+    function startWizard(scope) {
+      toggleGuide(false);
+      setScope(scope);
+      const stepText = scope === 'team'
+        ? "팀 문서를 선택했습니다. 팀 키를 고른 뒤 최신 상태를 불러오세요."
+        : "개인 문서를 선택했습니다. 최신 상태를 불러온 뒤 내용을 붙여넣으세요.";
+      setWizardTip(stepText);
+      if (scope === 'team' && !currentTeamKey && teamOptions.length) {
+        currentTeamKey = teamOptions[0].key;
+        document.getElementById("teamSelect").value = currentTeamKey;
+      }
+      refreshMetadata();
+    }
+
+    function setScope(scope) {
+      const input = document.querySelector(`input[name="scope"][value="${scope}"]`);
+      if (input) {
+        input.checked = true;
+        currentScope = scope;
+        currentTeamKey = scope === 'team' ? currentTeamKey : '';
+        updateTeamSelectState();
+      }
+    }
+
+    function copyDocUrl() {
+      const link = document.getElementById("docLink").href;
+      if (!link) {
+        document.getElementById("status").innerText = "⚠️ 먼저 최신 상태를 불러오세요.";
+        return;
+      }
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(link).then(function() {
+          document.getElementById("status").innerText = "📋 문서 URL을 복사했습니다.";
+        }).catch(function() {
+          fallbackCopy(link);
+        });
+      } else {
+        fallbackCopy(link);
+      }
+    }
+
+    function fallbackCopy(text) {
+      const tmp = document.createElement("textarea");
+      tmp.value = text;
+      document.body.appendChild(tmp);
+      tmp.select();
+      try {
+        document.execCommand("copy");
+        document.getElementById("status").innerText = "📋 문서 URL을 복사했습니다.";
+      } catch (err) {
+        document.getElementById("status").innerText = "⚠️ URL 복사에 실패했습니다: " + err;
+      } finally {
+        document.body.removeChild(tmp);
+      }
     }
   </script>
 </body>

@@ -8,6 +8,7 @@ import sys
 import textwrap
 import urllib.request
 import urllib.parse
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -105,19 +106,76 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def prompt(text: str) -> str:
+    """Prompt only when stdin is interactive."""
+    if not sys.stdin.isatty():
+        return ""
+    try:
+        return input(text).strip()
+    except EOFError:
+        return ""
+
+
+def upsert_env_value(lines: list[str], key: str, value: str) -> list[str]:
+    replaced = False
+    new_lines: list[str] = []
+    for line in lines:
+        if line.startswith(f"{key}="):
+            new_lines.append(f"{key}={value}")
+            replaced = True
+        else:
+            new_lines.append(line)
+    if not replaced:
+        new_lines.append(f"{key}={value}")
+    return new_lines
+
+
+def persist_env(base_url: str, token: str) -> None:
+    env_path = Path(".env")
+    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+    lines = upsert_env_value(lines, "WEBAPP_URL", base_url)
+    lines = upsert_env_value(lines, "API_TOKEN", token)
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("✅ .env에 WEBAPP_URL, API_TOKEN을 저장했습니다.")
+
+
+def ensure_credentials(base_url: Optional[str], token: Optional[str]) -> tuple[str, str]:
+    if base_url and token:
+        return base_url, token
+    print("웹 앱 URL 또는 API 토큰이 비어 있습니다. 아래 안내에 따라 입력하세요.")
+    base_url = (base_url or prompt("웹 앱 URL 입력: ")).strip()
+    token = (token or prompt("API 토큰 입력: ")).strip()
+    if not base_url or not token:
+        raise RuntimeError("필수 값(WEBAPP_URL, API_TOKEN)이 설정되지 않았습니다.")
+    save_answer = prompt(".env에 값을 저장하시겠습니까? [Y/n]: ").lower()
+    if save_answer in {"", "y", "yes"}:
+        persist_env(base_url, token)
+    return base_url, token
+
+
+def ensure_team_key(scope: str, team_key: str) -> str:
+    if scope != "team" or team_key:
+        return team_key
+    prompt_value = prompt("팀 스코프입니다. 업로드할 팀 키 입력 (엔터=자동 선택): ")
+    if prompt_value:
+        return prompt_value
+    print("⚠️ 팀 키가 비어 있으므로 서버 기본값이 사용됩니다.")
+    return team_key
+
+
 def main(argv: Optional[list[str]] = None) -> int:
-    args = parse_args(argv)
     load_dotenv()
+    args = parse_args(argv)
     base_url = os.getenv("WEBAPP_URL")
     token = os.getenv("API_TOKEN")
-    if not all([base_url, token]):
-        print("오류: .env에 WEBAPP_URL, API_TOKEN을 설정하세요.", file=sys.stderr)
+    try:
+        base_url, token = ensure_credentials(base_url, token)
+    except RuntimeError as exc:
+        print(f"오류: {exc}", file=sys.stderr)
         return 1
 
     scope = sanitize_scope(args.scope)
-    team_key = (args.team or "").strip()
-    if scope == "team" and not team_key:
-        print("⚠️ 팀 스코프를 사용 중이지만 TEAM_KEY가 비어있습니다. 서버 기본값을 사용합니다.")
+    team_key = ensure_team_key(scope, (args.team or "").strip())
 
     if args.clipboard:
         text = read_clipboard()
