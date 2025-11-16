@@ -1,9 +1,13 @@
 # Memory Hub (LLM Git)
 
 ## 🇰🇷 소개
-Memory Hub는 LLM 대화에서 생성되는 [HANDOFF] 블록을 개인용/팀용 Google Docs에 안정적으로 저장하고 재활용할 수 있게 해 주는 “LLM용 git” 플랫폼입니다. FastAPI 서버가 Google OAuth 토큰을 안전하게 관리하고, CLI·브라우저 확장·LLM 오버레이가 `pull/push/diff` 루틴을 자동화합니다. 사용자는 LLM 창에서 `;s`만 입력하면 퀵 패널이 떠서 대상 문서(scope/team)를 고르고, 최신 메모를 가져오거나 곧바로 저장할 수 있습니다.
+##한마디로 LLM용 GIT.
+
+LLM 대화에서 생성되는 [HANDOFF] 블록을 개인용/팀용 Google Docs에 안정적으로 저장하고 재활용할 수 있게 해 주는 “LLM용 git” 플랫폼입니다. FastAPI 서버가 Google OAuth 토큰을 안전하게 관리하고, CLI·브라우저 확장·LLM 오버레이가 `pull/push/diff` 루틴을 자동화합니다. 사용자는 LLM 창에서 `;s`만 입력하면 퀵 패널이 떠서 대상 문서(scope/team)를 고르고, 최신 메모를 가져오거나 곧바로 저장할 수 있습니다.
 
 ## 🇺🇸 Overview
+
+##LLM GIT.
 Memory Hub is an “LLM-native git” workflow that captures [HANDOFF] blocks from AI chats into personal/team Google Docs with revision locks and categories. A FastAPI backend handles OAuth tokens and revision tracking, while the official CLI and Chromium extension expose git-like `pull/push/diff` flows. Inside ChatGPT, Gemini, Claude, or Grok, typing `;s` opens a quick panel where users choose personal/team docs, fetch the latest memory, and push updates directly through the API.
 
 
