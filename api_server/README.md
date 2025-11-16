@@ -22,6 +22,8 @@
 - `[웹 앱 URL]`
 - 상단에서 **개인/팀**을 선택하고, 팀 스코프일 경우 드롭다운에서 팀 키를 고른 뒤 사용합니다.
 - “최신 상태 불러오기” → 작업 → “GDoc에 저장” 순으로 동기화합니다.
+- 새로 추가된 **가이드 모드** 버튼을 누르면 3단계 튜토리얼과 “개인용 시작/팀용 시작” 자동 설정이 제공됩니다.
+- “URL 복사” 버튼으로 현재 문서 링크를 공유하고, 상태 영역의 팁으로 오류 해결법을 즉시 확인할 수 있습니다.
 
 ### 2. 자동 쓰기 (`POST`)
 - **URL:** `[웹 앱 URL]?key=TOKEN&scope=personal`  
@@ -29,6 +31,7 @@
 - **Method:** `POST`
 - **Body:** `[HANDOFF]...` 텍스트. 서버가 자동으로 `[AUTO_CATEGORY] ...` 라인을 삽입합니다.
 - **CLI 업로더:** PC에서는 `python clients/python/push_memory.py --clipboard`로 클립보드 내용을 곧바로 업로드할 수 있습니다. 파일 업로드는 `--file handoff.txt --scope team --team alpha`처럼 사용하세요.
+  - `.env`가 비어 있으면 스크립트가 웹앱 URL과 토큰을 직접 물어보고 저장 여부까지 안내합니다. 팀 스코프인데 `TEAM_KEY`가 없으면 입력 프롬프트가 떠서 일반 사용자도 설정할 수 있습니다.
 
 ### 3. 자동 읽기 (`GET`)
 - **URL:** `[웹 앱 URL]?mode=json&key=TOKEN&scope=team&team=alpha&category=MEETING`
