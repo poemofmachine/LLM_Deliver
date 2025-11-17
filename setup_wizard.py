@@ -70,7 +70,12 @@ st.markdown("""
 
 # 세션 상태 초기화
 if "current_step" not in st.session_state:
-    st.session_state.current_step = 1
+    # 설정이 이미 저장되어 있으면 완료 화면으로
+    config_manager = get_config_manager()
+    if config_manager.is_configured():
+        st.session_state.current_step = 5
+    else:
+        st.session_state.current_step = 1
 
 if "llm_selected" not in st.session_state:
     st.session_state.llm_selected = None
@@ -305,43 +310,56 @@ def render_settings_input():
 
 def render_completion():
     """설정 완료 화면"""
-    st.markdown("## Step 4️⃣: 설정 완료")
+    st.markdown("## Step 5️⃣: 설정 완료")
 
     # 설정 저장
     config_manager = get_config_manager()
 
     try:
-        # LLM 저장
-        config_manager.set_llm(st.session_state.llm_selected, st.session_state.llm_settings)
+        # 새로운 설정이 있으면 저장 (Step 4에서 온 경우)
+        if st.session_state.llm_selected and st.session_state.storage_selected:
+            config_manager.set_llm(st.session_state.llm_selected, st.session_state.llm_settings)
+            config_manager.set_storage(st.session_state.storage_selected, st.session_state.storage_settings)
+            st.markdown("""
+                <div class="success-box">
+                    <h2>✅ 설정이 완료되었습니다!</h2>
+                    <p>모든 설정이 저장되었습니다.</p>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            # 기존 설정을 표시
+            st.markdown("""
+                <div class="success-box">
+                    <h2>✅ 설정이 이미 완료되어 있습니다!</h2>
+                    <p>저장된 설정을 확인하세요.</p>
+                </div>
+            """, unsafe_allow_html=True)
 
-        # 저장소 저장
-        config_manager.set_storage(st.session_state.storage_selected, st.session_state.storage_settings)
+        # 저장된 설정 조회
+        saved_llm = config_manager.get_llm()
+        saved_storage = config_manager.get_storage()
 
-        st.markdown("""
-            <div class="success-box">
-                <h2>✅ 설정이 완료되었습니다!</h2>
-                <p>모든 설정이 저장되었습니다.</p>
-            </div>
-        """, unsafe_allow_html=True)
-
-        # 설정 요약
-        st.markdown("### 📋 설정 요약")
+        st.markdown("### 📋 현재 설정")
 
         col1, col2 = st.columns(2)
 
         with col1:
             st.markdown("**AI 모델**")
-            st.info(f"""
-            - 모델: {st.session_state.llm_selected}
-            - 설정: {len(st.session_state.llm_settings)}개 항목
-            """)
+            if saved_llm:
+                st.info(f"""
+                ✅ 모델: **{saved_llm}**
+                """)
+            else:
+                st.warning("⚠️ AI 모델이 설정되지 않았습니다")
 
         with col2:
             st.markdown("**저장소**")
-            st.info(f"""
-            - 저장소: {st.session_state.storage_selected}
-            - 설정: {len(st.session_state.storage_settings)}개 항목
-            """)
+            if saved_storage:
+                st.info(f"""
+                ✅ 저장소: **{saved_storage}**
+                """)
+            else:
+                st.warning("⚠️ 저장소가 설정되지 않았습니다")
 
         st.markdown("---")
 
@@ -349,41 +367,56 @@ def render_completion():
         st.success("""
         ✅ 설정 마법사 완료!
 
-        이제 다음을 할 수 있습니다:
-        1. **Streamlit 대시보드 실행**
-           ```bash
-           cd clients
-           streamlit run streamlit_dashboard_simple.py
-           ```
+        **이제 대시보드를 실행하세요:**
 
-        2. **FastAPI 서버 실행** (선택)
-           ```bash
-           cd api_server_v2
-           uvicorn app.main:app --reload
-           ```
+        ```bash
+        cd clients
+        streamlit run streamlit_dashboard_simple.py
+        ```
 
-        3. **메모 저장 및 불러오기**
-           - 대시보드에서 바로 사용 가능
+        또는 **FastAPI 서버와 함께 사용** (선택):
+        ```bash
+        cd api_server_v2
+        uvicorn app.main:app --reload
+        ```
+
+        대시보드에서 메모를 저장하고 불러올 수 있습니다!
         """)
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
 
         with col1:
-            if st.button("🏠 홈으로", key="go_home"):
-                st.session_state.current_step = 1
-                st.rerun()
-
-        with col2:
             if st.button("⚙️ 설정 변경", key="reconfigure"):
                 st.session_state.current_step = 2
                 st.rerun()
 
+        with col2:
+            if st.button("📋 설정 조회", key="view_config"):
+                # .env 파일 표시
+                import os
+                env_file = os.path.expanduser("~/.memory_hub/.env")
+                if os.path.exists(env_file):
+                    with open(env_file, "r") as f:
+                        st.code(f.read(), language="bash")
+                else:
+                    st.info("설정 파일이 아직 생성되지 않았습니다")
+
+        with col3:
+            if st.button("✅ 완료", key="finish_wizard"):
+                st.markdown("""
+                    <div class="success-box">
+                        <h3>🎉 설정이 완료되었습니다!</h3>
+                        <p>이제 대시보드를 실행하세요:</p>
+                        <p><code>cd clients && streamlit run streamlit_dashboard_simple.py</code></p>
+                    </div>
+                """, unsafe_allow_html=True)
+
     except Exception as e:
-        st.error(f"❌ 설정 저장 실패: {str(e)}")
+        st.error(f"❌ 오류 발생: {str(e)}")
         st.markdown("---")
 
         if st.button("🔄 다시 시도", key="retry_setup"):
-            st.session_state.current_step = 4
+            st.session_state.current_step = 2
             st.rerun()
 
 
