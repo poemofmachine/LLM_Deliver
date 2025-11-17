@@ -1,14 +1,45 @@
-# Memory Hub (LLM Git)
+# Memory Hub (LLM Git) ☁️
 
 ## 🇰🇷 소개
-##한마디로 LLM용 GIT.
 
-LLM 대화에서 생성되는 [HANDOFF] 블록을 개인용/팀용 Google Docs에 안정적으로 저장하고 재활용할 수 있게 해 주는 “LLM용 git” 플랫폼입니다. FastAPI 서버가 Google OAuth 토큰을 안전하게 관리하고, CLI·브라우저 확장·LLM 오버레이가 `pull/push/diff` 루틴을 자동화합니다. 사용자는 LLM 창에서 `;s`만 입력하면 퀵 패널이 떠서 대상 문서(scope/team)를 고르고, 최신 메모를 가져오거나 곧바로 저장할 수 있습니다.
+**LLM용 GIT** - AI와의 대화 중 중요한 내용을 Google Docs에 자동 저장하고 재사용하는 플랫폼
+
+LLM 대화에서 생성되는 [HANDOFF] 블록을 개인용/팀용 Google Docs에 안정적으로 저장하고 재활용할 수 있게 해 주는 "LLM용 git" 플랫폼입니다. FastAPI 서버가 Google OAuth 토큰을 안전하게 관리하고, CLI·브라우저 확장·LLM 오버레이가 `pull/push/diff` 루틴을 자동화합니다. 사용자는 LLM 창에서 `;s`만 입력하면 퀵 패널이 떠서 대상 문서(scope/team)를 고르고, 최신 메모를 가져오거나 곧바로 저장할 수 있습니다.
 
 ## 🇺🇸 Overview
 
-##LLM GIT.
-Memory Hub is an “LLM-native git” workflow that captures [HANDOFF] blocks from AI chats into personal/team Google Docs with revision locks and categories. A FastAPI backend handles OAuth tokens and revision tracking, while the official CLI and Chromium extension expose git-like `pull/push/diff` flows. Inside ChatGPT, Gemini, Claude, or Grok, typing `;s` opens a quick panel where users choose personal/team docs, fetch the latest memory, and push updates directly through the API.
+**LLM GIT** - Save AI conversations to Google Docs instantly and reuse them with version control
+
+Memory Hub is an "LLM-native git" workflow that captures [HANDOFF] blocks from AI chats into personal/team Google Docs with revision locks and categories. A FastAPI backend handles OAuth tokens and revision tracking, while the official CLI and Chromium extension expose git-like `pull/push/diff` flows. Inside ChatGPT, Gemini, Claude, or Grok, typing `;s` opens a quick panel where users choose personal/team docs, fetch the latest memory, and push updates directly through the API.
+
+---
+
+## 🚀 빠르게 시작하기
+
+> **5분 안에 시작하려면 여기를 선택하세요!**
+
+### 3가지 방법 중 선택
+
+| 방법 | 시간 | 난이도 | 링크 |
+|------|------|--------|------|
+| ☁️ **GitHub Codespace** | 2분 | ⭐ 매우 쉬움 | [Codespace 가이드](./CODESPACE_SETUP.md) |
+| 💻 **로컬 PC** | 5분 | ⭐⭐ 쉬움 | [로컬 설정 가이드](./LOCAL_SETUP.md) |
+| 🐳 **Docker** | 3분 | ⭐ 매우 쉬움 | [Docker 가이드](#docker) |
+
+### 💡 추천:
+- **처음 사용자**: Codespace (클릭만 하면 완료!)
+- **이미 Python 있음**: 로컬 PC
+- **깔끔한 환경**: Docker
+
+---
+
+## 📚 전체 가이드
+
+처음이세요? 시작하기 전에 읽어보세요:
+
+**[👉 완전 초보자 가이드](./GETTING_STARTED.md)** ← 이 문서를 먼저 읽으세요!
+
+---
 
 
 # 🚀 API Server (v2.2 Hybrid+)
