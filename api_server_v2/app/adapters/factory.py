@@ -10,6 +10,7 @@ from .sqlite import SQLiteAdapter
 from .firebase import FirebaseAdapter
 from .notion import NotionAdapter
 from .mongodb import MongoDBAdapter
+from .superthread import SuperthreadAdapter
 
 
 class StorageFactory:
@@ -24,7 +25,7 @@ class StorageFactory:
         환경 설정에 따라 저장소 어댑터 반환
 
         환경 변수:
-            STORAGE_TYPE: 저장소 타입 (sqlite/firebase/notion/mongodb)
+            STORAGE_TYPE: 저장소 타입 (sqlite/firebase/notion/mongodb/superthread)
                          기본값: sqlite
 
             SQLite:
@@ -40,6 +41,10 @@ class StorageFactory:
             MongoDB:
                 MONGODB_CONNECTION_STRING: MongoDB 연결 문자열
                 MONGODB_DATABASE_NAME: 데이터베이스 이름 (기본값: memory_hub)
+
+            Superthread:
+                SUPERTHREAD_API_KEY: Superthread API 키
+                SUPERTHREAD_WORKSPACE_ID: Superthread 워크스페이스 ID
 
         Returns:
             StorageAdapter 인스턴스
@@ -60,10 +65,12 @@ class StorageFactory:
             cls._instance = cls._create_notion()
         elif storage_type == "mongodb":
             cls._instance = cls._create_mongodb()
+        elif storage_type == "superthread":
+            cls._instance = cls._create_superthread()
         else:
             raise ValueError(
                 f"알 수 없는 저장소 타입: {storage_type}\n"
-                f"지원하는 타입: sqlite, firebase, notion, mongodb"
+                f"지원하는 타입: sqlite, firebase, notion, mongodb, superthread"
             )
 
         return cls._instance
@@ -120,6 +127,26 @@ class StorageFactory:
         database_name = os.getenv("MONGODB_DATABASE_NAME", "memory_hub")
         return MongoDBAdapter(connection_string, database_name)
 
+    @staticmethod
+    def _create_superthread() -> StorageAdapter:
+        """Superthread 어댑터 생성"""
+        api_key = os.getenv("SUPERTHREAD_API_KEY")
+        workspace_id = os.getenv("SUPERTHREAD_WORKSPACE_ID")
+
+        if not api_key:
+            raise ValueError(
+                "SUPERTHREAD_API_KEY 환경 변수가 필요합니다.\n"
+                "Superthread 계정에서 API 키를 발급해주세요."
+            )
+
+        if not workspace_id:
+            raise ValueError(
+                "SUPERTHREAD_WORKSPACE_ID 환경 변수가 필요합니다.\n"
+                "Superthread 워크스페이스 ID를 설정해주세요."
+            )
+
+        return SuperthreadAdapter(api_key, workspace_id)
+
     @classmethod
     def reset(cls):
         """싱글톤 인스턴스 리셋 (테스트용)"""
@@ -133,6 +160,7 @@ class StorageFactory:
             "firebase": "Google Firebase Firestore",
             "notion": "Notion API",
             "mongodb": "MongoDB Atlas",
+            "superthread": "Superthread 팀 협업 플랫폼",
         }
 
 

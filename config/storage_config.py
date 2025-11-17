@@ -157,6 +157,38 @@ STORAGE_CONFIGS: Dict[str, StorageConfig] = {
             "MONGODB_DATABASE_NAME": "memory_hub"
         }
     ),
+
+    "superthread": StorageConfig(
+        name="superthread",
+        display_name="🧵 Superthread (팀 협업 플랫폼)",
+        type="superthread",
+        description="Superthread. 팀 협업과 프로젝트 관리 통합 플랫폼",
+        free_tier=True,
+        setup_url="https://superthread.com/",
+        required_fields=["api_key", "workspace_id"],
+        optional_fields=[],
+        features=[
+            "👥 팀 협업",
+            "📋 프로젝트 관리",
+            "🆓 무료 플랜",
+            "🔄 실시간 동기화",
+            "📚 통합 문서",
+            "⚙️ 자동 백업",
+        ],
+        storage_limit="무제한",
+        setup_steps=[
+            "1. Superthread 계정 생성",
+            "2. 워크스페이스 생성",
+            "3. API 키 발급",
+            "4. 워크스페이스 ID 복사",
+        ],
+        auto_setup=False,
+        env_vars={
+            "STORAGE_TYPE": "superthread",
+            "SUPERTHREAD_API_KEY": "your_api_key",
+            "SUPERTHREAD_WORKSPACE_ID": "your_workspace_id"
+        }
+    ),
 }
 
 
