@@ -8,10 +8,14 @@ import os
 from typing import Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
+from .encryption import KeyEncryption
 
 
 class ConfigManager:
     """설정 관리자"""
+
+    # 민감한 필드명 (자동 암호화 대상)
+    SENSITIVE_FIELDS = {'api_key', 'password', 'token', 'secret', 'credentials_path', 'connection_string'}
 
     def __init__(self, config_dir: str = "config"):
         """
@@ -32,7 +36,20 @@ class ConfigManager:
         if self.config_file.exists():
             try:
                 with open(self.config_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    config_data = json.load(f)
+
+                # 암호화된 설정 복호화
+                if config_data.get("llm", {}).get("settings"):
+                    config_data["llm"]["settings"] = self._decrypt_settings(
+                        config_data["llm"]["settings"]
+                    )
+
+                if config_data.get("storage", {}).get("settings"):
+                    config_data["storage"]["settings"] = self._decrypt_settings(
+                        config_data["storage"]["settings"]
+                    )
+
+                return config_data
             except Exception as e:
                 print(f"설정 로드 실패: {e}")
                 return self._create_default_config()
@@ -64,13 +81,84 @@ class ConfigManager:
         try:
             self.config_data["updated_at"] = datetime.now().isoformat()
 
+            # 저장 전에 민감한 데이터 암호화
+            data_to_save = self.config_data.copy()
+            data_to_save["llm"] = data_to_save.get("llm", {}).copy()
+            data_to_save["storage"] = data_to_save.get("storage", {}).copy()
+
+            if data_to_save.get("llm", {}).get("settings"):
+                data_to_save["llm"]["settings"] = self._encrypt_settings(
+                    data_to_save["llm"]["settings"]
+                )
+
+            if data_to_save.get("storage", {}).get("settings"):
+                data_to_save["storage"]["settings"] = self._encrypt_settings(
+                    data_to_save["storage"]["settings"]
+                )
+
             with open(self.config_file, "w", encoding="utf-8") as f:
-                json.dump(self.config_data, f, indent=2, ensure_ascii=False)
+                json.dump(data_to_save, f, indent=2, ensure_ascii=False)
 
             return True
         except Exception as e:
             print(f"설정 저장 실패: {e}")
             return False
+
+    # ========================================================================
+    # 암호화/복호화 헬퍼 메서드
+    # ========================================================================
+
+    def _encrypt_settings(self, settings: Dict[str, str]) -> Dict[str, str]:
+        """
+        설정값의 민감한 필드 암호화
+
+        Args:
+            settings: 설정 딕셔너리
+
+        Returns:
+            암호화된 설정 딕셔너리
+        """
+        encrypted = {}
+
+        for key, value in settings.items():
+            if isinstance(value, str) and key.lower() in self.SENSITIVE_FIELDS:
+                # 민감한 필드는 암호화
+                encrypted[key] = KeyEncryption.encrypt(value)
+            else:
+                # 그 외는 그대로 저장
+                encrypted[key] = value
+
+        return encrypted
+
+    def _decrypt_settings(self, settings: Dict[str, str]) -> Dict[str, str]:
+        """
+        설정값의 암호화된 필드 복호화
+
+        Args:
+            settings: 암호화된 설정 딕셔너리
+
+        Returns:
+            복호화된 설정 딕셔너리
+        """
+        decrypted = {}
+
+        for key, value in settings.items():
+            if isinstance(value, str) and key.lower() in self.SENSITIVE_FIELDS:
+                # 암호화된 필드 확인 및 복호화
+                if KeyEncryption.is_encrypted(value):
+                    try:
+                        decrypted[key] = KeyEncryption.decrypt(value)
+                    except Exception as e:
+                        print(f"필드 '{key}' 복호화 실패: {e}")
+                        # 복호화 실패 시 원본값 사용
+                        decrypted[key] = value
+                else:
+                    # 암호화되지 않은 평문 (이전 버전 호환성)
+                    decrypted[key] = value
+            else:
+                decrypted[key] = value
+
+        return decrypted
 
     # ========================================================================
     # LLM 설정

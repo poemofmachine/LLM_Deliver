@@ -256,11 +256,56 @@ def render_settings_input():
     st.markdown("**필수 정보:**")
     for field in llm_config.required_fields:
         if field == "api_key":
-            st.session_state.llm_settings[field] = st.text_input(
-                f"🔑 API 키",
-                type="password",
-                key=f"llm_{field}"
-            )
+            col1, col2 = st.columns([3, 1])
+
+            with col1:
+                st.session_state.llm_settings[field] = st.text_input(
+                    f"🔑 API 키",
+                    type="password",
+                    key=f"llm_{field}"
+                )
+
+            with col2:
+                if st.button("✓", key=f"validate_llm_{field}", help="검증"):
+                    api_key = st.session_state.llm_settings.get(field, "")
+                    if api_key:
+                        # LLM 타입별 검증
+                        if llm_id == "openai":
+                            is_valid, message = Validators.validate_openai_key(api_key)
+                        elif llm_id == "anthropic":
+                            is_valid, message = Validators.validate_anthropic_key(api_key)
+                        elif llm_id == "google":
+                            is_valid, message = Validators.validate_google_key(api_key)
+                        elif llm_id == "huggingface":
+                            is_valid, message = Validators.validate_huggingface_key(api_key)
+                        else:
+                            is_valid, message = True, "✅ 유효한 입력"
+
+                        if is_valid:
+                            st.success(message)
+                        else:
+                            st.error(message)
+                    else:
+                        st.warning("⚠️ API 키를 입력하세요")
+
+            # 검증 결과 표시
+            api_key = st.session_state.llm_settings.get(field, "")
+            if api_key:
+                if llm_id == "openai":
+                    is_valid, _ = Validators.validate_openai_key(api_key)
+                elif llm_id == "anthropic":
+                    is_valid, _ = Validators.validate_anthropic_key(api_key)
+                elif llm_id == "google":
+                    is_valid, _ = Validators.validate_google_key(api_key)
+                elif llm_id == "huggingface":
+                    is_valid, _ = Validators.validate_huggingface_key(api_key)
+                else:
+                    is_valid = True
+
+                if is_valid:
+                    st.caption("✅ 유효한 API 키")
+                else:
+                    st.caption("❌ 유효하지 않은 API 키")
         else:
             st.session_state.llm_settings[field] = st.text_input(
                 f"📝 {field}",
@@ -290,16 +335,98 @@ def render_settings_input():
     st.markdown("**필수 정보:**")
     for field in storage_config.required_fields:
         if "key" in field.lower() or "password" in field.lower():
-            st.session_state.storage_settings[field] = st.text_input(
-                f"🔑 {field}",
-                type="password",
-                key=f"storage_{field}"
-            )
+            col1, col2 = st.columns([3, 1])
+
+            with col1:
+                st.session_state.storage_settings[field] = st.text_input(
+                    f"🔑 {field}",
+                    type="password",
+                    key=f"storage_{field}"
+                )
+
+            with col2:
+                if st.button("✓", key=f"validate_storage_{field}", help="검증"):
+                    value = st.session_state.storage_settings.get(field, "")
+                    if value:
+                        # 저장소 타입별 검증
+                        if storage_id == "firebase" and field == "credentials_path":
+                            is_valid, message = Validators.validate_firebase_credentials(value)
+                        elif storage_id == "notion" and field == "api_key":
+                            is_valid, message = Validators.validate_notion_api_key(value)
+                        elif storage_id == "mongodb" and field == "connection_string":
+                            is_valid, message = Validators.validate_mongodb_connection_string(value)
+                        elif storage_id == "superthread" and field == "api_key":
+                            is_valid, message = Validators.validate_superthread_api_key(value)
+                        else:
+                            is_valid, message = True, "✅ 유효한 입력"
+
+                        if is_valid:
+                            st.success(message)
+                        else:
+                            st.error(message)
+                    else:
+                        st.warning("⚠️ 값을 입력하세요")
+
+            # 검증 결과 표시
+            value = st.session_state.storage_settings.get(field, "")
+            if value:
+                if storage_id == "firebase" and field == "credentials_path":
+                    is_valid, _ = Validators.validate_firebase_credentials(value)
+                elif storage_id == "notion" and field == "api_key":
+                    is_valid, _ = Validators.validate_notion_api_key(value)
+                elif storage_id == "mongodb" and field == "connection_string":
+                    is_valid, _ = Validators.validate_mongodb_connection_string(value)
+                elif storage_id == "superthread" and field == "api_key":
+                    is_valid, _ = Validators.validate_superthread_api_key(value)
+                else:
+                    is_valid = True
+
+                if is_valid:
+                    st.caption("✅ 유효한 값")
+                else:
+                    st.caption("❌ 유효하지 않은 값")
         else:
-            st.session_state.storage_settings[field] = st.text_input(
-                f"📝 {field}",
-                key=f"storage_{field}"
-            )
+            col1, col2 = st.columns([3, 1])
+
+            with col1:
+                st.session_state.storage_settings[field] = st.text_input(
+                    f"📝 {field}",
+                    key=f"storage_{field}"
+                )
+
+            with col2:
+                if st.button("✓", key=f"validate_storage_{field}_text", help="검증"):
+                    value = st.session_state.storage_settings.get(field, "")
+                    if value:
+                        # 저장소 타입별 검증
+                        if storage_id == "notion" and field == "database_id":
+                            is_valid, message = Validators.validate_notion_database_id(value)
+                        elif storage_id == "superthread" and field == "workspace_id":
+                            is_valid, message = Validators.validate_superthread_workspace_id(value)
+                        else:
+                            is_valid, message = True, "✅ 유효한 입력"
+
+                        if is_valid:
+                            st.success(message)
+                        else:
+                            st.error(message)
+                    else:
+                        st.warning("⚠️ 값을 입력하세요")
+
+            # 검증 결과 표시
+            value = st.session_state.storage_settings.get(field, "")
+            if value:
+                if storage_id == "notion" and field == "database_id":
+                    is_valid, _ = Validators.validate_notion_database_id(value)
+                elif storage_id == "superthread" and field == "workspace_id":
+                    is_valid, _ = Validators.validate_superthread_workspace_id(value)
+                else:
+                    is_valid = True
+
+                if is_valid:
+                    st.caption("✅ 유효한 값")
+                else:
+                    st.caption("❌ 유효하지 않은 값")
 
     if storage_config.optional_fields:
         st.markdown("**선택 정보:**")
