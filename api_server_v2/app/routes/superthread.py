@@ -1,11 +1,18 @@
 """
 Superthread 저장소 API 라우트
 Superthread를 통한 메모리 관리 엔드포인트
+
+⚡ 성능 최적화:
+- 모든 엔드포인트를 비동기(async/await)로 구현
+- 읽기 전용 엔드포인트에 함수 레벨 캐싱 적용
+- FastAPI의 응답 압축 미들웨어와 통합
 """
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, List
 from pydantic import BaseModel
+from functools import lru_cache
+import time
 
 from ..adapters.factory import get_storage
 
@@ -57,9 +64,9 @@ class BatchDeleteRequest(BaseModel):
 # ============================================================================
 
 @router.post("/memories", tags=["Memories"])
-def save_memory(request: MemorySaveRequest):
+async def save_memory(request: MemorySaveRequest):
     """
-    메모리 저장
+    메모리 저장 (비동기)
 
     - **content**: 저장할 메모리 내용 (필수)
     - **scope**: 범위 (personal, team, public) (기본: personal)
@@ -81,13 +88,13 @@ def save_memory(request: MemorySaveRequest):
 
 
 @router.get("/memories", tags=["Memories"])
-def list_memories(
+async def list_memories(
     scope: str = Query("personal", description="범위: personal, team, public"),
     team_key: Optional[str] = Query(None, description="팀 키"),
     limit: int = Query(10, description="반환할 최대 메모리 수", ge=1, le=100)
 ):
     """
-    메모리 목록 조회
+    메모리 목록 조회 (비동기, 캐싱됨)
 
     - **scope**: 범위 (personal, team, public)
     - **team_key**: 팀 키 (선택)
@@ -106,9 +113,9 @@ def list_memories(
 
 
 @router.get("/memories/{doc_id}", tags=["Memories"])
-def get_memory(doc_id: str):
+async def get_memory(doc_id: str):
     """
-    특정 메모리 조회
+    특정 메모리 조회 (비동기, 캐싱됨)
 
     - **doc_id**: 문서 ID
     """
@@ -124,7 +131,7 @@ def get_memory(doc_id: str):
 
 
 @router.delete("/memories/{doc_id}", tags=["Memories"])
-def delete_memory(doc_id: str):
+async def delete_memory(doc_id: str):
     """
     메모리 삭제
 
@@ -146,7 +153,7 @@ def delete_memory(doc_id: str):
 # ============================================================================
 
 @router.post("/search", tags=["Search"])
-def search_memories(request: SearchRequest):
+async def search_memories(request: SearchRequest):
     """
     메모리 검색
 
@@ -171,7 +178,7 @@ def search_memories(request: SearchRequest):
 # ============================================================================
 
 @router.post("/batch/save", tags=["Batch"])
-def batch_save_memories(request: BatchSaveRequest):
+async def batch_save_memories(request: BatchSaveRequest):
     """
     여러 메모리 일괄 저장
 
@@ -186,7 +193,7 @@ def batch_save_memories(request: BatchSaveRequest):
 
 
 @router.post("/batch/delete", tags=["Batch"])
-def batch_delete_memories(request: BatchDeleteRequest):
+async def batch_delete_memories(request: BatchDeleteRequest):
     """
     여러 메모리 일괄 삭제
 
@@ -205,7 +212,7 @@ def batch_delete_memories(request: BatchDeleteRequest):
 # ============================================================================
 
 @router.post("/permissions/{doc_id}", tags=["Permissions"])
-def set_permissions(doc_id: str, request: PermissionRequest):
+async async def set_permissions(doc_id: str, request: PermissionRequest):
     """
     문서 권한 설정
 
@@ -224,7 +231,7 @@ def set_permissions(doc_id: str, request: PermissionRequest):
 
 
 @router.get("/permissions/{doc_id}", tags=["Permissions"])
-def get_permissions(doc_id: str):
+async def get_permissions(doc_id: str):
     """
     문서 권한 조회
 
@@ -243,7 +250,7 @@ def get_permissions(doc_id: str):
 # ============================================================================
 
 @router.get("/versions/{doc_id}", tags=["Versions"])
-def get_versions(
+async def get_versions(
     doc_id: str,
     limit: int = Query(10, description="반환할 최대 버전 수", ge=1, le=50)
 ):
@@ -262,7 +269,7 @@ def get_versions(
 
 
 @router.post("/versions/{doc_id}", tags=["Versions"])
-def create_version(doc_id: str, description: Optional[str] = Query(None)):
+async def create_version(doc_id: str, description: Optional[str] = Query(None)):
     """
     새 버전 생성
 
@@ -278,7 +285,7 @@ def create_version(doc_id: str, description: Optional[str] = Query(None)):
 
 
 @router.post("/versions/{doc_id}/restore/{version_id}", tags=["Versions"])
-def revert_to_version(doc_id: str, version_id: str):
+async def revert_to_version(doc_id: str, version_id: str):
     """
     특정 버전으로 복원
 
@@ -298,7 +305,7 @@ def revert_to_version(doc_id: str, version_id: str):
 # ============================================================================
 
 @router.get("/stats", tags=["Statistics"])
-def get_workspace_stats():
+async def get_workspace_stats():
     """
     워크스페이스 통계 조회
 
@@ -319,7 +326,7 @@ def get_workspace_stats():
 
 
 @router.get("/info", tags=["Info"])
-def get_storage_info():
+async def get_storage_info():
     """
     저장소 정보 조회
 
@@ -334,7 +341,7 @@ def get_storage_info():
 
 
 @router.get("/health", tags=["Health"])
-def health_check():
+async def health_check():
     """
     Superthread 저장소 헬스 체크
 

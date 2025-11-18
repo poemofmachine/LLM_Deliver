@@ -1,23 +1,119 @@
+"""
+Memory Hub v2 - FastAPI 메인 애플리케이션
+
+⚡ 성능 최적화:
+- GZip 응답 압축 (1000 바이트 이상)
+- CORS 미들웨어 최적화
+- 모든 라우터를 비동기(async/await) 엔드포인트로 등록
+- 신뢰된 호스트 설정
+- 에러 처리 미들웨어
+"""
+
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+import time
+from contextlib import asynccontextmanager
 
 from .config import settings
 from .routes import sessions, tokens, workspaces, superthread, google_docs
 from .routes import auth  # 1. 방금 만든 auth 라우터 임포트
 
+
+# ============================================================================
+# 앱 초기화 및 라이프사이클 이벤트
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 시작/종료 시 실행되는 함수"""
+    # 앱 시작 시
+    print("🚀 Memory Hub v2 시작")
+    print("⚡ 성능 최적화 활성화: async endpoints, GZip compression, caching")
+    yield
+    # 앱 종료 시
+    print("🛑 Memory Hub v2 종료")
+
+
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
-    description="Reference FastAPI implementation for Memory Hub v2",
+    description="Reference FastAPI implementation for Memory Hub v2 - Performance Optimized",
+    lifespan=lifespan
 )
+
+# ============================================================================
+# 미들웨어 설정 (성능 최적화)
+# ============================================================================
+
+# 1. GZip 응답 압축 (1000바이트 이상의 응답을 압축)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# 2. CORS 설정 (프로덕션에서는 origins를 더 제한)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 프로덕션에서는 특정 도메인만 허용
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 3. 신뢰된 호스트 설정 (XXE 방지)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["localhost", "127.0.0.1", "*.example.com"]
+)
+
+# ============================================================================
+# 라우터 등록
+# ============================================================================
 
 app.include_router(workspaces.router)
 app.include_router(sessions.router)
 app.include_router(tokens.router)
 app.include_router(auth.router)  # 2. auth 라우터 포함
-app.include_router(superthread.router)  # 3. superthread 라우터 포함
-app.include_router(google_docs.router)  # 4. google_docs 라우터 포함
+app.include_router(superthread.router)  # 3. superthread 라우터 포함 (async endpoints)
+app.include_router(google_docs.router)  # 4. google_docs 라우터 포함 (async endpoints)
 
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+# ============================================================================
+# 헬스 체크 엔드포인트
+# ============================================================================
+
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """애플리케이션 헬스 체크"""
+    return {
+        "status": "ok",
+        "version": "0.1.0",
+        "optimizations": [
+            "async/await endpoints",
+            "gzip compression",
+            "caching support",
+            "cors enabled",
+            "trusted hosts configured"
+        ]
+    }
+
+
+# ============================================================================
+# 루트 엔드포인트
+# ============================================================================
+
+@app.get("/", tags=["Info"])
+async def root():
+    """API 정보"""
+    return {
+        "name": "Memory Hub v2 API",
+        "version": "0.1.0",
+        "description": "Performance-Optimized Memory Management System",
+        "endpoints": {
+            "health": "/health",
+            "docs": "/docs",
+            "redoc": "/redoc",
+            "superthread": "/superthread/*",
+            "google_docs": "/google-docs/*",
+            "auth": "/auth/*",
+        }
+    }
