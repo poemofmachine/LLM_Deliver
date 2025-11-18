@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from .config import settings
-from .routes import sessions, tokens, workspaces
+from .routes import sessions, tokens, workspaces, superthread
 from .routes import auth  # 1. 방금 만든 auth 라우터 임포트
 
 app = FastAPI(
@@ -14,6 +14,7 @@ app.include_router(workspaces.router)
 app.include_router(sessions.router)
 app.include_router(tokens.router)
 app.include_router(auth.router)  # 2. auth 라우터 포함
+app.include_router(superthread.router)  # 3. superthread 라우터 포함
 
 
 @app.get("/health")

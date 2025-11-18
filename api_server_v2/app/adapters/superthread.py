@@ -556,6 +556,250 @@ class SuperthreadAdapter(StorageAdapter):
                 "error": str(e)
             }
 
+    # ============================================================================
+    # 검색 기능 (Search)
+    # ============================================================================
+
+    def search_memories(self, query: str, scope: str = "personal",
+                       limit: int = 20) -> Dict[str, Any]:
+        """
+        메모리 검색
+
+        Args:
+            query: 검색 쿼리 (키워드)
+            scope: 범위 (personal, team, public)
+            limit: 반환할 최대 결과 수
+
+        Returns:
+            검색 결과
+        """
+        try:
+            endpoint = f"{self.base_url}/workspaces/{self.workspace_id}/documents/search"
+
+            data = {
+                "query": query,
+                "scope": scope,
+                "limit": limit
+            }
+
+            response = requests.post(
+                endpoint,
+                headers=self.headers,
+                json=data,
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                results = response.json().get("results", [])
+                return {
+                    "success": True,
+                    "message": f"{len(results)}개의 검색 결과를 찾았습니다",
+                    "results": results,
+                    "count": len(results),
+                    "timestamp": self.format_timestamp()
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"검색 실패 (상태코드: {response.status_code})",
+                    "error": response.text
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"검색 중 오류: {str(e)}",
+                "error": str(e)
+            }
+
+    # ============================================================================
+    # 배치 작업 (Batch Operations)
+    # ============================================================================
+
+    def batch_save_memories(self, memories: list) -> Dict[str, Any]:
+        """
+        여러 메모리를 일괄 저장
+
+        Args:
+            memories: 메모리 리스트 (각 항목은 content, scope, category 등 포함)
+
+        Returns:
+            배치 저장 결과
+        """
+        try:
+            results = []
+            failed_count = 0
+
+            for idx, memory in enumerate(memories):
+                doc_data = {
+                    "workspace_id": self.workspace_id,
+                    "content": memory.get("content", ""),
+                    "scope": memory.get("scope", "personal"),
+                    "team_key": memory.get("team_key"),
+                    "category": memory.get("category", "default"),
+                    "created_at": self.format_timestamp(),
+                    "updated_at": self.format_timestamp()
+                }
+
+                endpoint = f"{self.base_url}/workspaces/{self.workspace_id}/documents"
+
+                try:
+                    response = requests.post(
+                        endpoint,
+                        headers=self.headers,
+                        json=doc_data,
+                        timeout=10
+                    )
+
+                    if response.status_code in [200, 201]:
+                        result = response.json()
+                        doc_id = result.get("id") or result.get("document_id")
+                        results.append({
+                            "index": idx,
+                            "success": True,
+                            "doc_id": doc_id
+                        })
+                    else:
+                        failed_count += 1
+                        results.append({
+                            "index": idx,
+                            "success": False,
+                            "error": response.text
+                        })
+
+                except Exception as e:
+                    failed_count += 1
+                    results.append({
+                        "index": idx,
+                        "success": False,
+                        "error": str(e)
+                    })
+
+            return {
+                "success": failed_count == 0,
+                "message": f"{len(memories) - failed_count}/{len(memories)}개의 메모리가 저장되었습니다",
+                "results": results,
+                "saved_count": len(memories) - failed_count,
+                "failed_count": failed_count,
+                "timestamp": self.format_timestamp()
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"배치 저장 중 오류: {str(e)}",
+                "error": str(e)
+            }
+
+    def batch_delete_memories(self, doc_ids: list) -> Dict[str, Any]:
+        """
+        여러 메모리를 일괄 삭제
+
+        Args:
+            doc_ids: 삭제할 문서 ID 리스트
+
+        Returns:
+            배치 삭제 결과
+        """
+        try:
+            results = []
+            deleted_count = 0
+
+            for doc_id in doc_ids:
+                endpoint = f"{self.base_url}/workspaces/{self.workspace_id}/documents/{doc_id}"
+
+                try:
+                    response = requests.delete(
+                        endpoint,
+                        headers=self.headers,
+                        timeout=10
+                    )
+
+                    if response.status_code in [200, 204]:
+                        deleted_count += 1
+                        results.append({
+                            "doc_id": doc_id,
+                            "success": True
+                        })
+                    else:
+                        results.append({
+                            "doc_id": doc_id,
+                            "success": False,
+                            "error": response.text
+                        })
+
+                except Exception as e:
+                    results.append({
+                        "doc_id": doc_id,
+                        "success": False,
+                        "error": str(e)
+                    })
+
+            return {
+                "success": deleted_count == len(doc_ids),
+                "message": f"{deleted_count}/{len(doc_ids)}개의 메모리가 삭제되었습니다",
+                "results": results,
+                "deleted_count": deleted_count,
+                "timestamp": self.format_timestamp()
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"배치 삭제 중 오류: {str(e)}",
+                "error": str(e)
+            }
+
+    # ============================================================================
+    # 통계 및 모니터링 (Statistics & Monitoring)
+    # ============================================================================
+
+    def get_workspace_stats(self) -> Dict[str, Any]:
+        """
+        워크스페이스 통계 조회
+
+        Returns:
+            워크스페이스 통계 정보
+        """
+        try:
+            endpoint = f"{self.base_url}/workspaces/{self.workspace_id}/stats"
+
+            response = requests.get(
+                endpoint,
+                headers=self.headers,
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                stats = response.json()
+                return {
+                    "success": True,
+                    "message": "워크스페이스 통계를 조회했습니다",
+                    "stats": {
+                        "total_documents": stats.get("total_documents", 0),
+                        "total_size": stats.get("total_size", 0),
+                        "last_updated": stats.get("last_updated"),
+                        "members": stats.get("members", 0),
+                        "teams": stats.get("teams", 0),
+                        "storage_used": stats.get("storage_used", 0),
+                        "storage_limit": stats.get("storage_limit", "Unlimited")
+                    },
+                    "timestamp": self.format_timestamp()
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"통계 조회 실패 (상태코드: {response.status_code})",
+                    "error": response.text
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"통계 조회 중 오류: {str(e)}",
+                "error": str(e)
+            }
+
     def get_storage_info(self) -> Dict[str, Any]:
         """저장소 정보 반환"""
         return {
@@ -570,18 +814,39 @@ class SuperthreadAdapter(StorageAdapter):
                 "문서 버전 관리",
                 "권한 관리",
                 "실시간 동기화",
-                "자동 백업"
+                "자동 백업",
+                "전문 검색",
+                "배치 작업"
             ],
-            "advanced_features": [
+            "core_methods": [
+                "save_memory - 메모리 저장",
+                "get_memory - 메모리 조회",
+                "list_memories - 메모리 목록",
+                "delete_memory - 메모리 삭제"
+            ],
+            "permission_methods": [
                 "set_permissions - 권한 설정",
-                "get_permissions - 권한 조회",
+                "get_permissions - 권한 조회"
+            ],
+            "version_methods": [
                 "get_versions - 버전 조회",
-                "revert_to_version - 버전 복원",
-                "create_version - 버전 생성"
+                "create_version - 버전 생성",
+                "revert_to_version - 버전 복원"
+            ],
+            "search_methods": [
+                "search_memories - 메모리 검색"
+            ],
+            "batch_methods": [
+                "batch_save_memories - 일괄 저장",
+                "batch_delete_memories - 일괄 삭제"
+            ],
+            "monitoring_methods": [
+                "get_workspace_stats - 워크스페이스 통계"
             ],
             "limits": {
                 "max_document_size": "Unlimited",
                 "storage_capacity": "Unlimited",
-                "api_rate_limit": "1000/hour"
+                "api_rate_limit": "1000/hour",
+                "batch_size": "100 documents per request"
             }
         }
