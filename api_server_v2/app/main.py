@@ -9,7 +9,7 @@ Memory Hub v2 - FastAPI 메인 애플리케이션
 - 에러 처리 미들웨어
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -19,6 +19,15 @@ from contextlib import asynccontextmanager
 from .config import settings
 from .routes import sessions, tokens, workspaces, superthread, google_docs
 from .routes import auth  # 1. 방금 만든 auth 라우터 임포트
+from .utils import (
+    get_performance_stats,
+    get_slowest_endpoints,
+    get_most_used_endpoints,
+    reset_performance_stats,
+    get_cache_stats,
+    clear_all_caches,
+    cleanup_expired_caches,
+)
 
 
 # ============================================================================
@@ -115,5 +124,67 @@ async def root():
             "superthread": "/superthread/*",
             "google_docs": "/google-docs/*",
             "auth": "/auth/*",
+        },
+        "monitoring": {
+            "performance_stats": "/monitoring/performance",
+            "slowest_endpoints": "/monitoring/slowest",
+            "most_used_endpoints": "/monitoring/most-used",
+            "cache_stats": "/monitoring/cache",
         }
     }
+
+
+# ============================================================================
+# 성능 모니터링 엔드포인트
+# ============================================================================
+
+@app.get("/monitoring/performance", tags=["Monitoring"])
+async def get_performance():
+    """전체 성능 통계 조회"""
+    return get_performance_stats()
+
+
+@app.get("/monitoring/slowest", tags=["Monitoring"])
+async def get_slowest(count: int = 5):
+    """가장 느린 엔드포인트 조회"""
+    return {
+        "slowest_endpoints": get_slowest_endpoints(count),
+        "count": count
+    }
+
+
+@app.get("/monitoring/most-used", tags=["Monitoring"])
+async def get_most_used(count: int = 5):
+    """가장 많이 사용된 엔드포인트 조회"""
+    return {
+        "most_used_endpoints": get_most_used_endpoints(count),
+        "count": count
+    }
+
+
+@app.post("/monitoring/reset-performance", tags=["Monitoring"])
+async def reset_perf():
+    """성능 통계 리셋"""
+    return reset_performance_stats()
+
+
+# ============================================================================
+# 캐시 관리 엔드포인트
+# ============================================================================
+
+@app.get("/monitoring/cache", tags=["Monitoring"])
+async def get_cache():
+    """캐시 통계 조회"""
+    return get_cache_stats()
+
+
+@app.post("/monitoring/cache/clear", tags=["Monitoring"])
+async def clear_cache():
+    """모든 캐시 비우기"""
+    return clear_all_caches()
+
+
+@app.post("/monitoring/cache/cleanup", tags=["Monitoring"])
+async def cleanup_cache():
+    """만료된 캐시 정리"""
+    return cleanup_expired_caches()
