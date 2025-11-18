@@ -1,7 +1,7 @@
 """
 유틸리티 모듈
 
-캐싱, 성능 모니터링, 보안 및 기타 공용 함수 제공
+캐싱, 성능 모니터링, 데이터베이스 관리 및 기타 공용 함수 제공
 """
 
 from .cache import (
@@ -28,6 +28,18 @@ from .performance import (
     reset_performance_stats,
 )
 
+from .database import (
+    DatabaseEngineFactory,
+    SessionFactory,
+    PoolMonitor,
+    DEV_POOL_CONFIG,
+    PROD_POOL_CONFIG,
+    TEST_POOL_CONFIG,
+    get_pool_config,
+    create_database_engine,
+    get_database_session_maker,
+)
+
 __all__ = [
     # Cache utilities
     "LRUCache",
@@ -49,4 +61,14 @@ __all__ = [
     "get_slowest_endpoints",
     "get_most_used_endpoints",
     "reset_performance_stats",
+    # Database utilities
+    "DatabaseEngineFactory",
+    "SessionFactory",
+    "PoolMonitor",
+    "DEV_POOL_CONFIG",
+    "PROD_POOL_CONFIG",
+    "TEST_POOL_CONFIG",
+    "get_pool_config",
+    "create_database_engine",
+    "get_database_session_maker",
 ]
