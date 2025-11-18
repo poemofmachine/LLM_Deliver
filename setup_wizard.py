@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config.llm_config import get_llm_list, get_llm_config, get_llm_info
 from config.storage_config import get_storage_list, get_storage_config, get_storage_info
 from config.config_manager import get_config_manager
+from config.validators import Validators
 
 
 # ============================================================================
@@ -94,8 +95,20 @@ if "storage_settings" not in st.session_state:
 # 함수
 # ============================================================================
 
+def render_breadcrumb():
+    """Breadcrumb 네비게이션"""
+    steps = ["🏠 홈", "🤖 LLM 선택", "💾 저장소 선택", "⚙️ 설정 입력", "✅ 완료"]
+    current = st.session_state.current_step
+
+    breadcrumb = " > ".join(steps[:current])
+    st.markdown(f"**{breadcrumb}**", unsafe_allow_html=True)
+    st.markdown("---")
+
+
 def render_welcome():
     """환영 화면"""
+    render_breadcrumb()
+
     st.markdown("""
         <div class="welcome-box">
             <h1>🚀 Memory Hub 초기 설정</h1>
@@ -128,6 +141,7 @@ def render_welcome():
 
 def render_llm_selection():
     """LLM 선택 화면"""
+    render_breadcrumb()
     st.markdown("## Step 1️⃣: AI 모델 선택")
     st.markdown("""
     사용할 AI 모델을 선택하세요. 각 모델은 다양한 특징을 가지고 있습니다.
@@ -177,6 +191,7 @@ def render_llm_selection():
 
 def render_storage_selection():
     """저장소 선택 화면"""
+    render_breadcrumb()
     st.markdown("## Step 2️⃣: 저장소 선택")
     st.markdown("""
     메모를 저장할 저장소를 선택하세요. 각 저장소는 다양한 특징을 가지고 있습니다.
@@ -225,6 +240,7 @@ def render_storage_selection():
 
 def render_settings_input():
     """설정 입력 화면"""
+    render_breadcrumb()
     st.markdown("## Step 3️⃣: API 키 및 설정 입력")
 
     # LLM 설정
@@ -310,6 +326,7 @@ def render_settings_input():
 
 def render_completion():
     """설정 완료 화면"""
+    render_breadcrumb()
     st.markdown("## Step 5️⃣: 설정 완료")
 
     # 설정 저장

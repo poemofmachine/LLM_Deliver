@@ -305,6 +305,257 @@ class SuperthreadAdapter(StorageAdapter):
                 "error": str(e)
             }
 
+    # ============================================================================
+    # 권한 관리 (Permission Management)
+    # ============================================================================
+
+    def set_permissions(self, doc_id: str, permissions: Dict[str, str]) -> Dict[str, Any]:
+        """
+        문서 권한 설정
+
+        Args:
+            doc_id: 문서 ID
+            permissions: 권한 설정 (사용자/팀별)
+                {
+                    "user@example.com": "viewer",  # viewer, editor, admin
+                    "team-key": "editor"
+                }
+
+        Returns:
+            권한 설정 결과
+        """
+        try:
+            endpoint = f"{self.base_url}/workspaces/{self.workspace_id}/documents/{doc_id}/permissions"
+
+            for user_or_team, permission_level in permissions.items():
+                if permission_level not in ["viewer", "editor", "admin"]:
+                    return {
+                        "success": False,
+                        "message": f"유효하지 않은 권한: {permission_level}",
+                        "error": "invalid_permission"
+                    }
+
+            data = {
+                "permissions": [
+                    {
+                        "id": user_or_team,
+                        "role": permission_level,
+                        "type": "user" if "@" in user_or_team else "team"
+                    }
+                    for user_or_team, permission_level in permissions.items()
+                ]
+            }
+
+            response = requests.post(
+                endpoint,
+                headers=self.headers,
+                json=data,
+                timeout=10
+            )
+
+            if response.status_code in [200, 201]:
+                return {
+                    "success": True,
+                    "message": f"{len(permissions)}개의 권한이 설정되었습니다",
+                    "permissions": permissions,
+                    "timestamp": self.format_timestamp()
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"권한 설정 실패 (상태코드: {response.status_code})",
+                    "error": response.text
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"권한 설정 중 오류: {str(e)}",
+                "error": str(e)
+            }
+
+    def get_permissions(self, doc_id: str) -> Dict[str, Any]:
+        """
+        문서 권한 조회
+
+        Args:
+            doc_id: 문서 ID
+
+        Returns:
+            권한 목록
+        """
+        try:
+            endpoint = f"{self.base_url}/workspaces/{self.workspace_id}/documents/{doc_id}/permissions"
+
+            response = requests.get(
+                endpoint,
+                headers=self.headers,
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                permissions = response.json().get("permissions", [])
+                return {
+                    "success": True,
+                    "message": f"{len(permissions)}개의 권한이 조회되었습니다",
+                    "permissions": permissions,
+                    "timestamp": self.format_timestamp()
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"권한 조회 실패 (상태코드: {response.status_code})",
+                    "error": response.text
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"권한 조회 중 오류: {str(e)}",
+                "error": str(e)
+            }
+
+    # ============================================================================
+    # 버전 관리 (Version Management)
+    # ============================================================================
+
+    def get_versions(self, doc_id: str, limit: int = 10) -> Dict[str, Any]:
+        """
+        문서 버전 목록 조회
+
+        Args:
+            doc_id: 문서 ID
+            limit: 반환할 최대 버전 수
+
+        Returns:
+            버전 목록
+        """
+        try:
+            endpoint = f"{self.base_url}/workspaces/{self.workspace_id}/documents/{doc_id}/versions"
+
+            params = {"limit": limit}
+
+            response = requests.get(
+                endpoint,
+                headers=self.headers,
+                params=params,
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                versions = response.json().get("versions", [])
+                return {
+                    "success": True,
+                    "message": f"{len(versions)}개의 버전이 조회되었습니다",
+                    "versions": versions,
+                    "count": len(versions),
+                    "timestamp": self.format_timestamp()
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"버전 조회 실패 (상태코드: {response.status_code})",
+                    "error": response.text
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"버전 조회 중 오류: {str(e)}",
+                "error": str(e)
+            }
+
+    def revert_to_version(self, doc_id: str, version_id: str) -> Dict[str, Any]:
+        """
+        특정 버전으로 복원
+
+        Args:
+            doc_id: 문서 ID
+            version_id: 복원할 버전 ID
+
+        Returns:
+            복원 결과
+        """
+        try:
+            endpoint = f"{self.base_url}/workspaces/{self.workspace_id}/documents/{doc_id}/versions/{version_id}/restore"
+
+            response = requests.post(
+                endpoint,
+                headers=self.headers,
+                timeout=10
+            )
+
+            if response.status_code in [200, 201]:
+                return {
+                    "success": True,
+                    "message": f"버전이 복원되었습니다 (ID: {version_id})",
+                    "version_id": version_id,
+                    "doc_id": doc_id,
+                    "timestamp": self.format_timestamp()
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"버전 복원 실패 (상태코드: {response.status_code})",
+                    "error": response.text
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"버전 복원 중 오류: {str(e)}",
+                "error": str(e)
+            }
+
+    def create_version(self, doc_id: str, description: str = None) -> Dict[str, Any]:
+        """
+        현재 상태를 새 버전으로 저장
+
+        Args:
+            doc_id: 문서 ID
+            description: 버전 설명 (선택사항)
+
+        Returns:
+            새 버전 생성 결과
+        """
+        try:
+            endpoint = f"{self.base_url}/workspaces/{self.workspace_id}/documents/{doc_id}/versions"
+
+            data = {
+                "description": description or f"자동 저장 버전 ({self.format_timestamp()})"
+            }
+
+            response = requests.post(
+                endpoint,
+                headers=self.headers,
+                json=data,
+                timeout=10
+            )
+
+            if response.status_code in [200, 201]:
+                result = response.json()
+                version_id = result.get("id") or result.get("version_id")
+                return {
+                    "success": True,
+                    "message": f"새 버전이 생성되었습니다 (ID: {version_id})",
+                    "version_id": version_id,
+                    "doc_id": doc_id,
+                    "timestamp": self.format_timestamp()
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"버전 생성 실패 (상태코드: {response.status_code})",
+                    "error": response.text
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"버전 생성 중 오류: {str(e)}",
+                "error": str(e)
+            }
+
     def get_storage_info(self) -> Dict[str, Any]:
         """저장소 정보 반환"""
         return {
@@ -317,8 +568,16 @@ class SuperthreadAdapter(StorageAdapter):
                 "클라우드 저장소",
                 "팀 협업",
                 "문서 버전 관리",
+                "권한 관리",
                 "실시간 동기화",
                 "자동 백업"
+            ],
+            "advanced_features": [
+                "set_permissions - 권한 설정",
+                "get_permissions - 권한 조회",
+                "get_versions - 버전 조회",
+                "revert_to_version - 버전 복원",
+                "create_version - 버전 생성"
             ],
             "limits": {
                 "max_document_size": "Unlimited",
